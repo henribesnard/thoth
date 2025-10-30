@@ -3,8 +3,9 @@ Configuration settings for THOTH application
 """
 from typing import List, Optional, Union
 from pydantic_settings import BaseSettings
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, ValidationError
 import os
+import secrets
 
 
 class Settings(BaseSettings):
@@ -18,8 +19,52 @@ class Settings(BaseSettings):
 
     # API Settings
     API_V1_PREFIX: str = "/api/v1"
-    SECRET_KEY: str = Field(default="dev-secret-key-change-in-production", env="SECRET_KEY")
+    SECRET_KEY: str = Field(default="", env="SECRET_KEY")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+
+    @field_validator('SECRET_KEY')
+    @classmethod
+    def validate_secret_key(cls, v: str, info) -> str:
+        """Validate SECRET_KEY is strong enough"""
+        # Get environment info
+        data = info.data if info.data else {}
+        is_dev = data.get('APP_ENV') == 'development' or data.get('DEBUG') is True
+
+        # If empty, handle based on environment
+        if not v or v == "":
+            if is_dev:
+                # Generate a random key for development
+                print("⚠️  WARNING: No SECRET_KEY provided. Generating random key for development.")
+                return secrets.token_urlsafe(32)
+            raise ValueError(
+                "SECRET_KEY must be set in production. "
+                "Generate one with: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+            )
+
+        # Check if it's the default weak key
+        weak_keys = [
+            "dev-secret-key-change-in-production",
+            "your-secret-key-change-in-production",
+            "change-me",
+            "secret",
+        ]
+        if v.lower() in weak_keys:
+            if not is_dev:
+                raise ValueError(
+                    "Cannot use default/weak SECRET_KEY in production. "
+                    "Generate a strong key with: python -c 'import secrets; print(secrets.token_urlsafe(32))'"
+                )
+            # In dev, warn but allow
+            print(f"⚠️  WARNING: Using weak SECRET_KEY '{v}'. Generating secure key for development.")
+            return secrets.token_urlsafe(32)
+
+        # Validate minimum length
+        if len(v) < 32:
+            if not is_dev:
+                raise ValueError("SECRET_KEY must be at least 32 characters long in production")
+            print(f"⚠️  WARNING: SECRET_KEY is too short ({len(v)} chars). Should be at least 32.")
+
+        return v
 
     # CORS
     cors_origins_str: str = Field(

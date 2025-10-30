@@ -9,9 +9,15 @@ engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
     future=True,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20
+    pool_pre_ping=True,  # Verify connections before using them
+    pool_size=10,  # Number of connections to keep open
+    max_overflow=20,  # Max additional connections
+    pool_recycle=3600,  # Recycle connections after 1 hour (prevents stale connections)
+    pool_timeout=30,  # Timeout for getting connection from pool
+    connect_args={
+        "server_settings": {"application_name": "thoth-backend"},
+        "timeout": 10,  # Connection timeout in seconds
+    }
 )
 
 # Create async session maker

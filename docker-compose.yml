@@ -7,9 +7,9 @@ services:
     container_name: thoth-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: thoth
-      POSTGRES_PASSWORD: thoth_password
-      POSTGRES_DB: thoth_db
+      POSTGRES_USER: ${POSTGRES_USER:-thoth}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_this_password}
+      POSTGRES_DB: ${POSTGRES_DB:-thoth_db}
     ports:
       - "5432:5432"
     volumes:
@@ -69,7 +69,10 @@ services:
       - "8001:8000"
     environment:
       # Database
-      DATABASE_URL: postgresql+asyncpg://thoth:thoth_password@postgres:5432/thoth_db
+      POSTGRES_USER: ${POSTGRES_USER:-thoth}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_this_password}
+      POSTGRES_DB: ${POSTGRES_DB:-thoth_db}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-thoth}:${POSTGRES_PASSWORD:-change_this_password}@postgres:5432/${POSTGRES_DB:-thoth_db}
       # Redis
       REDIS_URL: redis://redis:6379/0
       # Qdrant
@@ -77,10 +80,10 @@ services:
       # DeepSeek API
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       # App Settings
-      APP_ENV: development
-      DEBUG: "true"
-      SECRET_KEY: your-secret-key-change-in-production
-      CORS_ORIGINS: http://localhost:3010,http://localhost
+      APP_ENV: ${APP_ENV:-development}
+      DEBUG: ${DEBUG:-true}
+      SECRET_KEY: ${SECRET_KEY}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3010,http://localhost}
     volumes:
       - ./backend:/app
       - backend_uploads:/app/uploads
@@ -104,7 +107,7 @@ services:
     restart: unless-stopped
     environment:
       # Database
-      DATABASE_URL: postgresql+asyncpg://thoth:thoth_password@postgres:5432/thoth_db
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-thoth}:${POSTGRES_PASSWORD:-change_this_password}@postgres:5432/${POSTGRES_DB:-thoth_db}
       # Redis
       REDIS_URL: redis://redis:6379/0
       # Qdrant
@@ -112,7 +115,8 @@ services:
       # DeepSeek API
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       # App Settings
-      APP_ENV: development
+      APP_ENV: ${APP_ENV:-development}
+      SECRET_KEY: ${SECRET_KEY}
     volumes:
       - ./backend:/app
       - backend_uploads:/app/uploads
@@ -133,7 +137,7 @@ services:
     restart: unless-stopped
     environment:
       # Database
-      DATABASE_URL: postgresql+asyncpg://thoth:thoth_password@postgres:5432/thoth_db
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-thoth}:${POSTGRES_PASSWORD:-change_this_password}@postgres:5432/${POSTGRES_DB:-thoth_db}
       # Redis
       REDIS_URL: redis://redis:6379/0
       # Qdrant
@@ -141,7 +145,8 @@ services:
       # DeepSeek API
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       # App Settings
-      APP_ENV: development
+      APP_ENV: ${APP_ENV:-development}
+      SECRET_KEY: ${SECRET_KEY}
     volumes:
       - ./backend:/app
     depends_on:

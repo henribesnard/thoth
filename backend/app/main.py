@@ -2,10 +2,13 @@
 THOTH - Assistant Intelligent d'Écriture Littéraire
 Main FastAPI Application
 """
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import time
 import logging
 
@@ -21,6 +24,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Configure rate limiter
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
+
 # Create FastAPI application
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -30,6 +36,10 @@ app = FastAPI(
     redoc_url="/api/redoc" if settings.DEBUG else None,
     openapi_url="/api/openapi.json" if settings.DEBUG else None,
 )
+
+# Add rate limiter state
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # CORS Middleware
 app.add_middleware(
@@ -59,14 +69,34 @@ async def add_process_time_header(request: Request, call_next):
 
 
 # Exception handlers
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Handle HTTP exceptions"""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Global exception: {exc}", exc_info=True)
+    """Handle unexpected exceptions"""
+    logger.error(
+        f"Unhandled exception on {request.method} {request.url.path}",
+        exc_info=True,
+        extra={
+            "method": request.method,
+            "url": str(request.url),
+            "client_host": request.client.host if request.client else None,
+        }
+    )
+
     return JSONResponse(
         status_code=500,
         content={
             "detail": "Une erreur interne est survenue",
-            "error": str(exc) if settings.DEBUG else None
+            "error": str(exc) if settings.DEBUG else None,
+            "type": type(exc).__name__ if settings.DEBUG else None
         }
     )
 

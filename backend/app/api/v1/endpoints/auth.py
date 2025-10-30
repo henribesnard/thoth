@@ -1,7 +1,9 @@
 """Authentication endpoints"""
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.db.session import get_db
 from app.schemas.user import UserCreate, UserResponse, UserLogin
@@ -11,15 +13,20 @@ from app.core.security import create_access_token, get_current_active_user
 from app.models.user import User
 
 router = APIRouter()
+limiter = Limiter(key_func=get_remote_address)
 
 
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@limiter.limit("5/minute")
 async def register(
+    request: Request,
     user_data: UserCreate,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Register a new user.
+
+    Rate limit: 5 requests per minute per IP address.
 
     - **email**: Valid email address
     - **password**: Password (min 8 characters)
@@ -31,7 +38,9 @@ async def register(
 
 
 @router.post("/login", response_model=Token)
+@limiter.limit("10/minute")
 async def login(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     db: AsyncSession = Depends(get_db)
 ):
@@ -66,12 +75,16 @@ async def login(
 
 
 @router.post("/login/json", response_model=Token)
+@limiter.limit("10/minute")
 async def login_json(
+    request: Request,
     credentials: UserLogin,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Login with JSON body (alternative to OAuth2 form).
+
+    Rate limit: 10 requests per minute per IP address.
 
     Returns JWT access token.
     """

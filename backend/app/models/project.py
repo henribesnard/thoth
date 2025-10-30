@@ -2,11 +2,16 @@
 from sqlalchemy import Column, String, Integer, Text, DateTime, ForeignKey, Enum
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 import enum
 
 from app.db.base import Base
+
+
+def utc_now():
+    """Return current UTC time - compatible with SQLAlchemy default"""
+    return datetime.now(timezone.utc)
 
 
 class ProjectStatus(str, enum.Enum):
@@ -52,8 +57,8 @@ class Project(Base):
     owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
 
     # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now)
 
     # Relationships
     owner = relationship("User", back_populates="projects")
