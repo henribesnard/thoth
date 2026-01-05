@@ -143,6 +143,7 @@ class DocumentService:
             document_type=document_data.document_type,
             order_index=document_data.order_index,
             word_count=word_count,
+            document_metadata=document_data.metadata or {},
             project_id=document_data.project_id
         )
 
@@ -184,6 +185,8 @@ class DocumentService:
 
         # Update fields
         update_data = document_data.model_dump(exclude_unset=True)
+        if "metadata" in update_data:
+            document.document_metadata = update_data.pop("metadata") or {}
         for field, value in update_data.items():
             setattr(document, field, value)
 

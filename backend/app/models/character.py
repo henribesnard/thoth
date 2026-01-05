@@ -2,7 +2,7 @@
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
-from datetime import datetime, timezone
+from datetime import datetime
 import uuid
 
 from app.db.base import Base
@@ -10,7 +10,8 @@ from app.db.base import Base
 
 def utc_now():
     """Return current UTC time - compatible with SQLAlchemy default"""
-    return datetime.now(timezone.utc)
+    # Return timezone-naive UTC datetime for PostgreSQL TIMESTAMP WITHOUT TIME ZONE
+    return datetime.utcnow()
 
 
 class Character(Base):

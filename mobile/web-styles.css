@@ -1,0 +1,25 @@
+/* Styles spécifiques pour la version web */
+
+/* Cache la scrollbar tout en gardant le scroll fonctionnel */
+* {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+*::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
+}
+
+/* Empêche le débordement sur le body */
+body {
+  overflow-x: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+/* Style pour que l'app ressemble à une app mobile sur desktop */
+@media (min-width: 768px) {
+  #root {
+    background-color: #F3F4F6;
+  }
+}

@@ -67,28 +67,33 @@ class Settings(BaseSettings):
         return v
 
     # CORS
-    cors_origins_str: str = Field(
-        default="http://localhost:3000,http://localhost",
-        env="CORS_ORIGINS"
-    )
-    allowed_hosts_str: str = Field(
-        default="localhost,127.0.0.1",
-        env="ALLOWED_HOSTS"
+    CORS_ORIGINS: Union[str, List[str]] = Field(
+        default="http://localhost:3000,http://localhost"
     )
 
-    @property
-    def CORS_ORIGINS(self) -> List[str]:
-        """Get CORS origins as list"""
-        if isinstance(self.cors_origins_str, str):
-            return [origin.strip() for origin in self.cors_origins_str.split(",") if origin.strip()]
-        return [self.cors_origins_str]
+    @field_validator('CORS_ORIGINS', mode='before')
+    @classmethod
+    def parse_cors_origins(cls, v):
+        """Parse CORS origins from string or list"""
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        elif isinstance(v, list):
+            return v
+        return ["http://localhost:3000", "http://localhost"]
 
-    @property
-    def ALLOWED_HOSTS(self) -> List[str]:
-        """Get allowed hosts as list"""
-        if isinstance(self.allowed_hosts_str, str):
-            return [host.strip() for host in self.allowed_hosts_str.split(",") if host.strip()]
-        return [self.allowed_hosts_str]
+    ALLOWED_HOSTS: Union[str, List[str]] = Field(
+        default="localhost,127.0.0.1"
+    )
+
+    @field_validator('ALLOWED_HOSTS', mode='before')
+    @classmethod
+    def parse_allowed_hosts(cls, v):
+        """Parse allowed hosts from string or list"""
+        if isinstance(v, str):
+            return [host.strip() for host in v.split(",") if host.strip()]
+        elif isinstance(v, list):
+            return v
+        return ["localhost", "127.0.0.1"]
 
     # Database
     DATABASE_URL: str = Field(..., env="DATABASE_URL")
@@ -106,6 +111,8 @@ class Settings(BaseSettings):
     DEEPSEEK_API_BASE: str = "https://api.deepseek.com/v1"
     DEEPSEEK_MODEL: str = "deepseek-chat"
     DEEPSEEK_REASONING_MODEL: str = "deepseek-reasoner"
+    DEEPSEEK_TIMEOUT: float = Field(default=300.0, env="DEEPSEEK_TIMEOUT")
+    CHAT_MAX_TOKENS: int = Field(default=4096, env="CHAT_MAX_TOKENS")
 
     # Embeddings
     EMBEDDING_MODEL: str = "BAAI/bge-m3"

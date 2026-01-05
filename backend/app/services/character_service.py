@@ -134,6 +134,7 @@ class CharacterService:
             physical_description=character_data.physical_description,
             personality=character_data.personality,
             backstory=character_data.backstory,
+            character_metadata=character_data.metadata or {},
             project_id=character_data.project_id
         )
 

@@ -1,115 +1,120 @@
-'use client';
+'use client'
 
-import { useState, FormEvent } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { login, setAuthToken } from '@/lib/api';
+import { useState, FormEvent } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { login, setAuthToken } from '@/lib/api'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
 
 export default function LoginPage() {
-  const router = useRouter();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const router = useRouter()
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    setError('');
-    setLoading(true);
+    e.preventDefault()
+    setError('')
+    setLoading(true)
 
     try {
-      const response = await login({ email, password });
-      setAuthToken(response.access_token);
-
-      // Redirect to dashboard
-      router.push('/dashboard');
+      const response = await login({ email, password })
+      setAuthToken(response.access_token)
+      router.push('/dashboard')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Une erreur est survenue');
+      setError(err instanceof Error ? err.message : 'Une erreur est survenue')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
+  }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
-        <div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            THOTH
-          </h2>
-          <p className="mt-2 text-center text-sm text-gray-600">
-            Connectez-vous à votre compte
-          </p>
-        </div>
-
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          {error && (
-            <div className="rounded-md bg-red-50 p-4">
-              <div className="flex">
-                <div className="ml-3">
-                  <h3 className="text-sm font-medium text-red-800">{error}</h3>
-                </div>
-              </div>
+    <div className="min-h-screen bg-atlas">
+      <div className="mx-auto flex min-h-screen max-w-6xl items-center px-6 py-12">
+        <div className="grid w-full gap-12 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="space-y-6">
+            <div className="inline-flex items-center gap-3 rounded-full bg-white/70 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-brand-700">
+              THOTH
             </div>
-          )}
+            <h1 className="font-serif text-4xl leading-tight text-ink md:text-5xl">
+              Retrouvez votre atelier d'ecriture.
+            </h1>
+            <p className="text-base text-ink/70">
+              Chaque session rehydrate le contexte, les contraintes et les documents
+              pour reprendre la narration sans friction.
+            </p>
+            <div className="grid gap-4 sm:grid-cols-2">
+              {[
+                'Contexte autonome',
+                'RAG vectoriel',
+                'Planification des chapitres',
+                'Generation guidee',
+              ].map((item) => (
+                <div key={item} className="flex items-center gap-3 rounded-2xl bg-white/80 p-4 ring-1 ring-stone-200">
+                  <div className="h-9 w-9 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center">
+                    <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <span className="text-sm font-medium text-ink">{item}</span>
+                </div>
+              ))}
+            </div>
+          </div>
 
-          <div className="rounded-md shadow-sm -space-y-px">
-            <div>
-              <label htmlFor="email" className="sr-only">
-                Adresse email
-              </label>
-              <input
+          <div className="glass-panel rounded-3xl p-8">
+            <div className="mb-6">
+              <h2 className="font-serif text-2xl text-ink">Connexion</h2>
+              <p className="text-sm text-ink/60">Accedez a votre espace de creation.</p>
+            </div>
+
+            <form className="space-y-5" onSubmit={handleSubmit}>
+              {error && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {error}
+                </div>
+              )}
+
+              <Input
                 id="email"
                 name="email"
                 type="email"
+                label="Adresse email"
                 autoComplete="email"
                 required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="Adresse email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 disabled={loading}
               />
-            </div>
-            <div>
-              <label htmlFor="password" className="sr-only">
-                Mot de passe
-              </label>
-              <input
+
+              <Input
                 id="password"
                 name="password"
                 type="password"
+                label="Mot de passe"
                 autoComplete="current-password"
                 required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="Mot de passe"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={loading}
               />
-            </div>
-          </div>
 
-          <div>
-            <button
-              type="submit"
-              disabled={loading}
-              className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {loading ? 'Connexion...' : 'Se connecter'}
-            </button>
-          </div>
+              <Button type="submit" variant="primary" size="lg" isLoading={loading} className="w-full">
+                {loading ? 'Connexion...' : 'Se connecter'}
+              </Button>
 
-          <div className="text-center">
-            <Link
-              href="/auth/register"
-              className="font-medium text-blue-600 hover:text-blue-500"
-            >
-              Pas encore de compte ? Inscrivez-vous
-            </Link>
+              <p className="text-center text-sm text-ink/60">
+                Pas encore de compte ?{' '}
+                <Link href="/auth/register" className="font-medium text-brand-700 hover:text-brand-800">
+                  Inscrivez-vous
+                </Link>
+              </p>
+            </form>
           </div>
-        </form>
+        </div>
       </div>
     </div>
-  );
+  )
 }

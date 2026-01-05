@@ -1,176 +1,84 @@
-# THOTH - Assistant Intelligent d'Écriture Littéraire
+﻿# THOTH - Assistant d'ecriture litteraire
 
-Assistant d'écriture intelligent qui accompagne les auteurs francophones dans la création de romans, nouvelles et œuvres littéraires.
+THOTH accompagne les auteurs francophones dans la creation de romans, nouvelles et autres oeuvres, avec un backend API, une interface web et une application mobile.
 
-## 🚀 Technologies
+## Stack
+- Backend: FastAPI 0.115, Python 3.11, SQLAlchemy, PostgreSQL, Redis, Qdrant
+- Frontend web: Next.js 15, TypeScript, Tailwind CSS
+- Mobile: React Native + Expo
+- IA: DeepSeek (chat + agents), LangChain, LangGraph
 
-### Backend
-- **Framework**: FastAPI 0.115
-- **Langage**: Python 3.11
-- **ORM**: SQLAlchemy 2.0
-- **Base de données**: PostgreSQL 15
-- **Cache & Queue**: Redis 7
-- **Vector DB**: Qdrant
-- **IA**: DeepSeek-V3, LangChain, LlamaIndex
+## Demarrage rapide (Docker)
+1. Copier `.env.example` vers `.env`
+2. Renseigner `DEEPSEEK_API_KEY` et `SECRET_KEY`
+3. Lancer `docker-compose up -d`
 
-### Frontend
-- **Framework**: Next.js 15
-- **Langage**: TypeScript
-- **State Management**: Zustand
-- **Styling**: Tailwind CSS
-- **Éditeur**: Tiptap
+Acces:
+- Web: http://localhost:3020
+- API: http://localhost:8002/api/v1
+- Docs API: http://localhost:8002/api/docs
+- Health: http://localhost:8002/health
 
-## 📋 Prérequis
+## Pipeline d'ecriture (LangChain + LangGraph)
+Le pipeline est orchestre par LangGraph et utilise LangChain pour le split et la recherche contextuelle (RAG).
+Il collecte le contexte d'ecriture automatiquement (projet, personnages, documents, contraintes), puis genere
+les chapitres avec retrieval sur Qdrant.
 
-- Docker & Docker Compose
-- Git
+Endpoints:
+- POST `/api/v1/writing/index` : indexer tous les documents d'un projet
+- POST `/api/v1/writing/generate-chapter` : generer un chapitre avec contexte et RAG
+- POST `/api/v1/writing/generate-book` : generer un livre complet (outline + chapitres)
 
-## 🛠️ Installation
+## Ce qui est fait
+### Backend (API)
+- Authentification JWT (register/login/me) et securite (hashing, ownership)
+- CRUD projets/documents/personnages avec pagination
+- Comptage automatique des mots (document et projet)
+- Chat THOTH avec contexte projet et historique persistant (DeepSeek)
+- Agents IA disponibles: narrative_architect, character_manager, style_expert, dialogue_master
+- Contexte projet assemble automatiquement pour les agents (via project_id)
+- Import de fichiers (txt, docx, pdf, md) vers documents, extraction et word count
+- RAG avec Qdrant (indexation + retrieval) et split LangChain
+- Pipeline d'ecriture LangGraph (plan -> generation -> sauvegarde chapitre)
+- Generation de livre complet (outline + chapitres)
+- Health check
+- Docker Compose (postgres, redis, qdrant, backend, frontend, celery)
 
-1. **Cloner le dépôt**
-```bash
-git clone <repo-url>
-cd Thoth
-```
+### Frontend web (Next.js)
+- Pages d'authentification (login/register)
+- Dashboard moderne (stats, liste de projets, creation via wizard)
+- Page projet (vue d'ensemble + listes documents/personnages + chat contextuel)
+- Interface de chat integree
 
-2. **Configurer les variables d'environnement**
-```bash
-cp .env.example .env
-# Éditer .env avec vos clés API
-```
+### Mobile (React Native/Expo)
+- Authentification (login/register)
+- Dashboard avec stats et projets
+- Creation de projet
+- Detail de projet
+- Chat THOTH contextuel
 
-3. **Démarrer les services avec Docker Compose**
-```bash
-docker-compose up -d
-```
+## Ce qui reste a faire
+### Backend / IA
+- Completer les 7 agents restants et leurs actions
+- Taches asynchrones avec Celery pour traitements lourds (indexation, imports, etc.)
+- Boucles de coherence multi-chapitres (relecture globale, contradictions, timeline)
 
-4. **Accéder à l'application**
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8000
-- API Docs: http://localhost:8000/api/docs
+### Frontend web
+- Editeur Tiptap (ecriture, autosave)
+- Creation/edition/reorganisation des documents
+- Creation/edition des personnages
+- UI d'import de documents (branchee sur `/upload`)
 
-## 📦 Services Docker
+### Mobile
+- Gestion des documents (liste, edition)
+- Gestion des personnages
+- Import de documents
 
-- **postgres**: Base de données PostgreSQL (port 5432)
-- **redis**: Cache & Queue (port 6379)
-- **qdrant**: Vector database (port 6333)
-- **backend**: API FastAPI (port 8000)
-- **frontend**: Application Next.js (port 3000)
-- **celery-worker**: Workers pour tâches asynchrones
-- **celery-beat**: Scheduler pour tâches récurrentes
+### Qualite
+- Tests backend, web et mobile
 
-## 🔧 Développement
-
-### Backend
-
-```bash
-cd backend
-
-# Installer les dépendances
-pip install -r requirements.txt
-
-# Lancer le serveur de développement
-uvicorn app.main:app --reload
-
-# Créer une migration
-alembic revision --autogenerate -m "description"
-
-# Appliquer les migrations
-alembic upgrade head
-
-# Tests
-pytest
-```
-
-### Frontend
-
-```bash
-cd frontend
-
-# Installer les dépendances
-npm install
-
-# Lancer le serveur de développement
-npm run dev
-
-# Build
-npm run build
-
-# Tests
-npm run test
-```
-
-## 📁 Structure du Projet
-
-```
-Thoth/
-├── backend/
-│   ├── app/
-│   │   ├── api/
-│   │   │   └── v1/
-│   │   │       └── endpoints/
-│   │   ├── core/
-│   │   ├── db/
-│   │   ├── models/
-│   │   ├── schemas/
-│   │   ├── services/
-│   │   │   ├── agents/
-│   │   │   └── rag/
-│   │   └── main.py
-│   ├── alembic/
-│   ├── tests/
-│   ├── Dockerfile
-│   └── requirements.txt
-├── frontend/
-│   ├── src/
-│   │   ├── app/
-│   │   ├── components/
-│   │   ├── lib/
-│   │   ├── stores/
-│   │   └── types/
-│   ├── public/
-│   ├── Dockerfile
-│   └── package.json
-├── docker/
-├── nginx/
-├── docker-compose.yml
-└── README.md
-```
-
-## 🤖 Système d'Agents IA
-
-THOTH utilise 11 agents IA spécialisés :
-
-1. **Architecte Narratif** - Structure globale du récit
-2. **Planificateur de Scènes** - Organisation des scènes
-3. **Gestionnaire de Personnages** - Cohérence des personnages
-4. **Gardien de la Chronologie** - Timeline et cohérence temporelle
-5. **Analyste de Cohérence** - Détection des incohérences
-6. **Expert Stylistique** - Qualité littéraire
-7. **Maître des Dialogues** - Authenticité des dialogues
-8. **Descripteur d'Atmosphère** - Ambiance et descriptions
-9. **Rédacteur** - Génération de contenu
-10. **Correcteur** - Orthographe et grammaire
-11. **Synthétiseur** - Rapports et résumés
-
-## 🔐 Sécurité
-
-- Authentification JWT
-- Variables d'environnement pour les secrets
-- Validation des données avec Pydantic
-- Rate limiting
-- CORS configuré
-
-## 📝 Licence
-
-Propriétaire - Besnard © 2025
-
-## 👤 Auteur
-
-Besnard
-
-## 🙏 Remerciements
-
-- DeepSeek pour l'API IA
-- La communauté FastAPI
-- La communauté Next.js
+## Documentation encore utile
+- `ARCHITECTURE.md` (architecture technique)
+- `DEVELOPMENT.md` (guide de dev)
+- `API_TESTING_GUIDE.md` (tests API)
+- `DEPLOIEMENT_DOCKER.md` (deploiement Docker)

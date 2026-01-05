@@ -7,7 +7,7 @@ from slowapi.util import get_remote_address
 
 from app.db.session import get_db
 from app.schemas.user import UserCreate, UserResponse, UserLogin
-from app.schemas.token import Token
+from app.schemas.token import Token, TokenWithUser
 from app.services.auth_service import AuthService
 from app.core.security import create_access_token, get_current_active_user
 from app.models.user import User
@@ -16,7 +16,7 @@ router = APIRouter()
 limiter = Limiter(key_func=get_remote_address)
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=TokenWithUser, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
 async def register(
     request: Request,
@@ -34,7 +34,9 @@ async def register(
     """
     auth_service = AuthService(db)
     user = await auth_service.register_user(user_data)
-    return user
+
+    access_token = create_access_token(user.id)
+    return {"access_token": access_token, "token_type": "bearer", "user": user}
 
 
 @router.post("/login", response_model=Token)

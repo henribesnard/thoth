@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import UUID
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,9 +12,6 @@ from app.core.config import settings
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.token import TokenPayload
-
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_PREFIX}/auth/login")
@@ -31,7 +28,12 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     Returns:
         True if password matches, False otherwise
     """
-    return pwd_context.verify(plain_password, hashed_password)
+    password_bytes = plain_password.encode('utf-8')
+    # Bcrypt has a maximum password length of 72 bytes
+    if len(password_bytes) > 72:
+        password_bytes = password_bytes[:72]
+
+    return bcrypt.checkpw(password_bytes, hashed_password.encode('utf-8'))
 
 
 def get_password_hash(password: str) -> str:
@@ -44,7 +46,15 @@ def get_password_hash(password: str) -> str:
     Returns:
         Hashed password
     """
-    return pwd_context.hash(password)
+    password_bytes = password.encode('utf-8')
+    # Bcrypt has a maximum password length of 72 bytes
+    if len(password_bytes) > 72:
+        password_bytes = password_bytes[:72]
+
+    # Generate salt and hash password
+    salt = bcrypt.gensalt()
+    hashed = bcrypt.hashpw(password_bytes, salt)
+    return hashed.decode('utf-8')
 
 
 def create_access_token(user_id: UUID, expires_delta: Optional[timedelta] = None) -> str:

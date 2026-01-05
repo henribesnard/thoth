@@ -18,6 +18,7 @@ class DocumentCreate(DocumentBase):
     """Schema for creating a new document"""
     project_id: UUID
     order_index: int = 0
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class DocumentUpdate(BaseModel):
@@ -26,7 +27,11 @@ class DocumentUpdate(BaseModel):
     content: Optional[str] = None
     document_type: Optional[DocumentType] = None
     order_index: Optional[int] = Field(None, ge=0)
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = Field(
+        default=None,
+        validation_alias="document_metadata",
+        serialization_alias="metadata",
+    )
 
 
 class DocumentResponse(DocumentBase):
@@ -34,15 +39,58 @@ class DocumentResponse(DocumentBase):
     id: UUID
     order_index: int
     word_count: int
-    metadata: Dict[str, Any]
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        validation_alias="document_metadata",
+        serialization_alias="metadata",
+    )
     project_id: UUID
     created_at: datetime
     updated_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
 class DocumentList(BaseModel):
     """Schema for document list response"""
     documents: list[DocumentResponse]
+    total: int
+
+
+class ElementCreateRequest(BaseModel):
+    """Schema for creating a structured element"""
+    project_id: UUID
+    element_type: str = Field(..., min_length=1, max_length=50)
+    parent_id: Optional[UUID] = None
+
+
+class ElementGenerateRequest(BaseModel):
+    """Schema for generating or rewriting an element"""
+    instructions: Optional[str] = None
+    min_word_count: Optional[int] = Field(None, ge=1)
+    max_word_count: Optional[int] = Field(None, ge=1)
+    summary: Optional[str] = None
+
+
+class DocumentVersionSummary(BaseModel):
+    """Summary of a document version"""
+    id: UUID
+    version: str
+    created_at: datetime
+    word_count: int
+    min_word_count: Optional[int] = None
+    max_word_count: Optional[int] = None
+    summary: Optional[str] = None
+    instructions: Optional[str] = None
+    is_current: bool = False
+
+
+class DocumentVersionResponse(DocumentVersionSummary):
+    """Document version with content"""
+    content: str
+
+
+class DocumentVersionList(BaseModel):
+    """Schema for list of document versions"""
+    versions: list[DocumentVersionSummary]
     total: int

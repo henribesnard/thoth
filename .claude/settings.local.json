@@ -19,7 +19,21 @@
       "Bash(docker rmi:*)",
       "Bash(git init:*)",
       "Bash(git remote add:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(git fetch:*)",
+      "Bash(gh pr:*)",
+      "WebFetch(domain:api.github.com)",
+      "Bash(git merge:*)",
+      "Bash(docker-compose exec:*)",
+      "Bash(timeout 180 docker-compose build:*)",
+      "Bash(docker-compose run:*)",
+      "Bash(docker-compose logs:*)",
+      "Bash(npx create-expo-app@latest mobile --template blank-typescript)",
+      "Bash(npx expo install:*)",
+      "Bash(npm run web:*)"
     ],
     "deny": [],
     "ask": []

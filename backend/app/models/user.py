@@ -11,7 +11,8 @@ from app.db.base import Base
 
 def utc_now():
     """Return current UTC time - compatible with SQLAlchemy default"""
-    return datetime.now(timezone.utc)
+    # Return timezone-naive UTC datetime for PostgreSQL TIMESTAMP WITHOUT TIME ZONE
+    return datetime.utcnow()
 
 
 class SubscriptionTier(str, enum.Enum):
@@ -47,6 +48,7 @@ class User(Base):
 
     # Relationships
     projects = relationship("Project", back_populates="owner", cascade="all, delete-orphan")
+    chat_messages = relationship("ChatMessage", back_populates="user", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<User {self.email}>"

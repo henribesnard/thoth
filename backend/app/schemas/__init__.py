@@ -16,13 +16,23 @@ from app.schemas.document import (
     DocumentCreate,
     DocumentUpdate,
     DocumentResponse,
-    DocumentList
+    DocumentList,
+    DocumentVersionSummary,
+    DocumentVersionResponse,
+    DocumentVersionList,
 )
 from app.schemas.character import (
     CharacterCreate,
     CharacterUpdate,
     CharacterResponse,
-    CharacterList
+    CharacterList,
+    CharacterGenerateRequest
+)
+from app.schemas.instruction import (
+    InstructionCreate,
+    InstructionUpdate,
+    InstructionResponse,
+    InstructionList,
 )
 from app.schemas.token import Token, TokenPayload
 
@@ -43,11 +53,20 @@ __all__ = [
     "DocumentUpdate",
     "DocumentResponse",
     "DocumentList",
+    "DocumentVersionSummary",
+    "DocumentVersionResponse",
+    "DocumentVersionList",
     # Character
     "CharacterCreate",
     "CharacterUpdate",
     "CharacterResponse",
     "CharacterList",
+    "CharacterGenerateRequest",
+    # Instruction
+    "InstructionCreate",
+    "InstructionUpdate",
+    "InstructionResponse",
+    "InstructionList",
     # Token
     "Token",
     "TokenPayload",
