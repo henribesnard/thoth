@@ -15,8 +15,11 @@ import {
   generateMainCharacters,
   createElement,
   generateElement,
+  createDocumentVersion,
   listDocumentVersions,
   getDocumentVersion,
+  listDocumentComments,
+  createDocumentComment,
   listInstructions,
   createInstruction,
   updateInstruction,
@@ -31,7 +34,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select } from '@/components/ui/select'
 import { Dialog, DialogHeader, DialogTitle, DialogDescription, DialogContent, DialogFooter } from '@/components/ui/dialog'
 import { formatDate, formatWordCount, calculateReadingTime } from '@/lib/utils'
-import type { Project, Document, Character, Instruction, DocumentVersion } from '@/types'
+import type { Project, Document, Character, Instruction, DocumentVersion, DocumentComment } from '@/types'
 
 const ELEMENT_TYPES = [
   { value: 'partie', label: 'Partie', level: 1 },
@@ -95,6 +98,7 @@ export default function ProjectDetailPage() {
   const [generateMaxWords, setGenerateMaxWords] = useState('')
   const [generateSummary, setGenerateSummary] = useState('')
   const [generateSourceVersionId, setGenerateSourceVersionId] = useState('')
+  const [generateCommentIds, setGenerateCommentIds] = useState<string[]>([])
   const [generateError, setGenerateError] = useState('')
   const [isGeneratingElement, setIsGeneratingElement] = useState(false)
   const [showElementPreview, setShowElementPreview] = useState(false)
@@ -109,6 +113,16 @@ export default function ProjectDetailPage() {
   const [versionErrorByDocId, setVersionErrorByDocId] = useState<Record<string, string>>({})
   const [loadingVersionsByDocId, setLoadingVersionsByDocId] = useState<Record<string, boolean>>({})
   const loadedVersionsRef = useRef<Set<string>>(new Set())
+  const [comments, setComments] = useState<DocumentComment[]>([])
+  const [commentInput, setCommentInput] = useState('')
+  const [isLoadingComments, setIsLoadingComments] = useState(false)
+  const [commentError, setCommentError] = useState('')
+  const [isSavingComment, setIsSavingComment] = useState(false)
+  const [applyingCommentId, setApplyingCommentId] = useState<string | null>(null)
+  const [showEditDialog, setShowEditDialog] = useState(false)
+  const [editContent, setEditContent] = useState('')
+  const [editError, setEditError] = useState('')
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
 
   useEffect(() => {
     const token = getAuthToken()
@@ -167,6 +181,34 @@ export default function ProjectDetailPage() {
     }
 
     loadVersions()
+
+    return () => {
+      cancelled = true
+    }
+  }, [showElementPreview, previewElement?.id])
+
+  useEffect(() => {
+    if (!showElementPreview || !previewElement) return
+    let cancelled = false
+
+    const loadComments = async () => {
+      try {
+        setIsLoadingComments(true)
+        setCommentError('')
+        const list = await listDocumentComments(previewElement.id)
+        if (cancelled) return
+        setComments(list)
+      } catch (error) {
+        if (cancelled) return
+        setCommentError(error instanceof Error ? error.message : 'Impossible de charger les commentaires')
+      } finally {
+        if (!cancelled) {
+          setIsLoadingComments(false)
+        }
+      }
+    }
+
+    loadComments()
 
     return () => {
       cancelled = true
@@ -292,7 +334,14 @@ export default function ProjectDetailPage() {
     setGenerateMaxWords('')
     setGenerateSummary('')
     setGenerateSourceVersionId('')
+    setGenerateCommentIds([])
     setGenerateError('')
+  }
+
+  const resetEditDialog = () => {
+    setShowEditDialog(false)
+    setEditContent('')
+    setEditError('')
   }
 
   const openElementPreview = (doc: Document, preferredVersionId?: string) => {
@@ -311,6 +360,10 @@ export default function ProjectDetailPage() {
     setSelectedVersion(null)
     setVersionError('')
     setIsLoadingVersions(false)
+    setComments([])
+    setCommentInput('')
+    setCommentError('')
+    setIsLoadingComments(false)
   }
 
   const getElementTypeFromDocument = (doc: Document) => {
@@ -544,14 +597,130 @@ export default function ProjectDetailPage() {
     }
   }
 
+  const handleAddComment = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!previewElement) return
+    const content = commentInput.trim()
+    if (!content) {
+      setCommentError('Le commentaire est requis')
+      return
+    }
+    try {
+      setIsSavingComment(true)
+      setCommentError('')
+      const created = await createDocumentComment(
+        previewElement.id,
+        content,
+        selectedVersionId || undefined
+      )
+      setComments((prev) => [...prev, created])
+      setCommentInput('')
+    } catch (error) {
+      setCommentError(error instanceof Error ? error.message : 'Une erreur est survenue')
+    } finally {
+      setIsSavingComment(false)
+    }
+  }
+
+  const openEditDialog = () => {
+    if (!previewElement) return
+    const baseContent =
+      selectedVersion?.content ||
+      (previewElement.content && previewElement.content.trim() ? previewElement.content : '')
+    setEditContent(baseContent)
+    setEditError('')
+    setShowEditDialog(true)
+  }
+
+  const handleSaveEdit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!previewElement) return
+    const content = editContent.trim()
+    if (!content) {
+      setEditError('Le contenu ne peut pas etre vide')
+      return
+    }
+    try {
+      setIsSavingEdit(true)
+      setEditError('')
+      const updated = await createDocumentVersion(
+        previewElement.id,
+        content,
+        selectedVersionId || undefined
+      )
+      setDocuments((prev) => prev.map((doc) => (doc.id === updated.id ? updated : doc)))
+      await loadVersionsForDoc(updated.id, true)
+      resetEditDialog()
+      resetElementPreview()
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : 'Une erreur est survenue')
+    } finally {
+      setIsSavingEdit(false)
+    }
+  }
+
+  const handleApplyComment = async (commentId: string) => {
+    if (!previewElement) return
+    if (!selectedVersionId) {
+      setCommentError('Selectionnez une version avant d appliquer un commentaire')
+      return
+    }
+    const minWords = selectedVersion?.min_word_count ?? getMinWordCount(previewElement) ?? undefined
+    const maxWords = selectedVersion?.max_word_count ?? getMaxWordCount(previewElement) ?? undefined
+    const summary = selectedVersion?.summary
+    const instructions = selectedVersion?.instructions
+    try {
+      setApplyingCommentId(commentId)
+      setCommentError('')
+      const updated = await generateElement(
+        previewElement.id,
+        instructions || undefined,
+        minWords || undefined,
+        maxWords || undefined,
+        summary || undefined,
+        selectedVersionId,
+        [commentId]
+      )
+      setDocuments((prev) => prev.map((doc) => (doc.id === updated.id ? updated : doc)))
+      await loadVersionsForDoc(updated.id, true)
+
+      const list = await listDocumentVersions(previewElement.id)
+      setVersions(list)
+      setVersionsByDocId((prev) => ({ ...prev, [previewElement.id]: list }))
+      if (list.length) {
+        const current = list.find((item) => item.is_current) || list[list.length - 1]
+        if (current) {
+          setSelectedVersionId(current.id)
+          setSelectedVersionByDocId((prev) => ({ ...prev, [previewElement.id]: current.id }))
+          const full = await getDocumentVersion(previewElement.id, current.id)
+          setSelectedVersion(full)
+        }
+      }
+
+      const updatedComments = await listDocumentComments(previewElement.id)
+      setComments(updatedComments)
+    } catch (error) {
+      setCommentError(error instanceof Error ? error.message : 'Une erreur est survenue')
+    } finally {
+      setApplyingCommentId(null)
+    }
+  }
+
   const handleCorrectSelectedVersion = () => {
     if (!previewElement) return
     const version = selectedVersion || versions.find((item) => item.id === selectedVersionId) || null
-    openGenerateDialog(previewElement, version)
+    const commentIds = comments
+      .filter((comment) => !comment.applied_version_ids || comment.applied_version_ids.length === 0)
+      .map((comment) => comment.id)
+    openGenerateDialog(previewElement, version, commentIds)
     resetElementPreview()
   }
 
-  const openGenerateDialog = (doc: Document, version?: DocumentVersion | null) => {
+  const openGenerateDialog = (
+    doc: Document,
+    version?: DocumentVersion | null,
+    commentIds?: string[]
+  ) => {
     setGenerateTarget(doc)
     setGenerateInstructions(version?.instructions || '')
     const existingMin = version?.min_word_count ?? getMinWordCount(doc)
@@ -566,6 +735,7 @@ export default function ProjectDetailPage() {
         : ''
     setGenerateSummary(existingSummary)
     setGenerateSourceVersionId(version?.id || '')
+    setGenerateCommentIds(commentIds || [])
     setGenerateError('')
     setShowGenerateDialog(true)
   }
@@ -610,7 +780,8 @@ export default function ProjectDetailPage() {
         minWordCount,
         maxWordCount,
         generateSummary.trim() || undefined,
-        generateSourceVersionId || undefined
+        generateSourceVersionId || undefined,
+        generateCommentIds.length ? generateCommentIds : undefined
       )
       setDocuments((prev) => prev.map((doc) => (doc.id === updated.id ? updated : doc)))
       void loadVersionsForDoc(updated.id, true)
@@ -758,6 +929,7 @@ export default function ProjectDetailPage() {
   const previewMinWords = selectedVersion?.min_word_count ?? getMinWordCount(previewElement)
   const previewMaxWords = selectedVersion?.max_word_count ?? getMaxWordCount(previewElement)
   const previewVersionLabel = selectedVersion?.version || ''
+  const versionLabelById = new Map(versions.map((item) => [item.id, item.version]))
 
   return (
     <div className="min-h-screen bg-atlas">
@@ -1429,6 +1601,89 @@ export default function ProjectDetailPage() {
               <div className="mt-2">{selectedVersion.instructions}</div>
             </div>
           )}
+          <div className="space-y-2">
+            <div className="text-sm font-semibold text-ink">Commentaires</div>
+            {isLoadingComments && (
+              <div className="rounded-2xl border border-stone-200 bg-white/80 px-4 py-3 text-sm text-ink/70">
+                Chargement des commentaires...
+              </div>
+            )}
+            {commentError && (
+              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {commentError}
+              </div>
+            )}
+            {!isLoadingComments && comments.length === 0 && (
+              <div className="rounded-2xl border border-stone-200 bg-white/80 px-4 py-3 text-sm text-ink/70">
+                Aucun commentaire pour cet element.
+              </div>
+            )}
+            {comments.length > 0 && (
+              <div className="space-y-2 max-h-[30vh] overflow-y-auto pr-1">
+                {comments.map((comment) => {
+                  const versionLabel = comment.version_id
+                    ? versionLabelById.get(comment.version_id) || 'version inconnue'
+                    : null
+                  const appliedVersions = comment.applied_version_ids || []
+                  const appliedLabels = appliedVersions
+                    .map((versionId) => versionLabelById.get(versionId) || versionId)
+                    .filter(Boolean)
+                  const isApplied = appliedVersions.length > 0
+                  return (
+                    <div
+                      key={comment.id}
+                      className="rounded-2xl border border-stone-200 bg-white/80 px-4 py-3 text-sm text-ink/70 whitespace-pre-wrap"
+                    >
+                      <div className="flex items-center justify-between gap-3 text-xs text-ink/50 mb-2">
+                        <span>
+                          {formatDate(comment.created_at)}
+                          {versionLabel ? ` - ${versionLabel}` : ''}
+                        </span>
+                        {isApplied && (
+                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-emerald-700">
+                            Pris en compte
+                          </span>
+                        )}
+                      </div>
+                      {comment.content}
+                      {appliedLabels.length > 0 && (
+                        <div className="mt-2 text-xs text-ink/50">
+                          Versions: {appliedLabels.join(', ')}
+                        </div>
+                      )}
+                      <div className="mt-3 flex justify-end">
+                        <Button
+                          variant="outline"
+                          type="button"
+                          disabled={!selectedVersionId || isApplied || applyingCommentId === comment.id}
+                          onClick={() => handleApplyComment(comment.id)}
+                        >
+                          {applyingCommentId === comment.id ? 'Application...' : 'Prendre en compte'}
+                        </Button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            <form onSubmit={handleAddComment} className="space-y-2">
+              <Textarea
+                value={commentInput}
+                onChange={(e) => {
+                  setCommentInput(e.target.value)
+                  if (commentError) setCommentError('')
+                }}
+                placeholder="Ajouter un commentaire pour cet element"
+                className="min-h-[90px]"
+                disabled={isSavingComment}
+              />
+              <div className="flex justify-end">
+                <Button variant="outline" type="submit" disabled={!commentInput.trim() || isSavingComment}>
+                  Ajouter le commentaire
+                </Button>
+              </div>
+            </form>
+          </div>
           <div className="rounded-2xl border border-stone-200 bg-white/80 px-4 py-3 text-sm text-ink/70 whitespace-pre-wrap max-h-[60vh] overflow-y-auto">
             {selectedVersion?.content && selectedVersion.content.trim()
               ? selectedVersion.content
@@ -1438,6 +1693,13 @@ export default function ProjectDetailPage() {
           </div>
         </DialogContent>
         <DialogFooter>
+          <Button
+            variant="outline"
+            onClick={openEditDialog}
+            disabled={!previewElement || !selectedVersionId || isLoadingVersions}
+          >
+            Editer cette version
+          </Button>
           <Button
             variant="primary"
             onClick={handleCorrectSelectedVersion}
@@ -1449,6 +1711,43 @@ export default function ProjectDetailPage() {
             Fermer
           </Button>
         </DialogFooter>
+      </Dialog>
+
+      <Dialog open={showEditDialog} onClose={resetEditDialog} size="lg">
+        <DialogHeader>
+          <DialogTitle>Editer l element</DialogTitle>
+          <DialogDescription>
+            {previewElement?.title}
+            {selectedVersion?.version ? ` - ${selectedVersion.version}` : ''}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSaveEdit}>
+          <DialogContent className="space-y-4">
+            <Textarea
+              value={editContent}
+              onChange={(e) => {
+                setEditContent(e.target.value)
+                if (editError) setEditError('')
+              }}
+              placeholder="Modifiez le texte de l element"
+              className="min-h-[360px]"
+              disabled={isSavingEdit}
+            />
+            {editError && (
+              <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {editError}
+              </div>
+            )}
+          </DialogContent>
+          <DialogFooter>
+            <Button variant="ghost" onClick={resetEditDialog} disabled={isSavingEdit}>
+              Annuler
+            </Button>
+            <Button variant="primary" type="submit" isLoading={isSavingEdit}>
+              Enregistrer
+            </Button>
+          </DialogFooter>
+        </form>
       </Dialog>
 
       <Dialog open={showCharacterDialog} onClose={resetCharacterDialog} size="md">

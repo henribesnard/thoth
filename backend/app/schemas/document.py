@@ -73,6 +73,13 @@ class ElementGenerateRequest(BaseModel):
     max_word_count: Optional[int] = Field(None, ge=1)
     summary: Optional[str] = None
     source_version_id: Optional[UUID] = None
+    comment_ids: Optional[list[UUID]] = None
+
+
+class DocumentVersionCreate(BaseModel):
+    """Schema for creating a manual document version"""
+    content: str = Field(..., min_length=1)
+    source_version_id: Optional[UUID] = None
 
 
 class DocumentVersionSummary(BaseModel):
@@ -87,6 +94,8 @@ class DocumentVersionSummary(BaseModel):
     instructions: Optional[str] = None
     source_version_id: Optional[str] = None
     source_version: Optional[str] = None
+    source_type: Optional[str] = None
+    source_comment_ids: Optional[list[str]] = None
     is_current: bool = False
 
 
@@ -98,4 +107,26 @@ class DocumentVersionResponse(DocumentVersionSummary):
 class DocumentVersionList(BaseModel):
     """Schema for list of document versions"""
     versions: list[DocumentVersionSummary]
+    total: int
+
+
+class DocumentCommentCreate(BaseModel):
+    """Schema for creating a document comment"""
+    content: str = Field(..., min_length=1)
+    version_id: Optional[UUID] = None
+
+
+class DocumentComment(BaseModel):
+    """Schema for document comment"""
+    id: UUID
+    content: str
+    created_at: datetime
+    user_id: UUID
+    version_id: Optional[UUID] = None
+    applied_version_ids: Optional[list[str]] = None
+
+
+class DocumentCommentList(BaseModel):
+    """Schema for list of document comments"""
+    comments: list[DocumentComment]
     total: int

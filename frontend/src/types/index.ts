@@ -86,8 +86,19 @@ export interface DocumentVersion {
   instructions?: string;
   source_version_id?: string;
   source_version?: string;
+  source_type?: string;
+  source_comment_ids?: string[];
   content?: string;
   is_current?: boolean;
+}
+
+export interface DocumentComment {
+  id: string;
+  content: string;
+  created_at: string;
+  user_id: string;
+  version_id?: string | null;
+  applied_version_ids?: string[];
 }
 
 export interface Character {

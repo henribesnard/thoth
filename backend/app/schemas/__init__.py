@@ -17,9 +17,13 @@ from app.schemas.document import (
     DocumentUpdate,
     DocumentResponse,
     DocumentList,
+    DocumentVersionCreate,
     DocumentVersionSummary,
     DocumentVersionResponse,
     DocumentVersionList,
+    DocumentCommentCreate,
+    DocumentComment,
+    DocumentCommentList,
 )
 from app.schemas.character import (
     CharacterCreate,
@@ -53,9 +57,13 @@ __all__ = [
     "DocumentUpdate",
     "DocumentResponse",
     "DocumentList",
+    "DocumentVersionCreate",
     "DocumentVersionSummary",
     "DocumentVersionResponse",
     "DocumentVersionList",
+    "DocumentCommentCreate",
+    "DocumentComment",
+    "DocumentCommentList",
     # Character
     "CharacterCreate",
     "CharacterUpdate",

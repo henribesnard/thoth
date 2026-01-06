@@ -20,9 +20,13 @@ from app.schemas.document import (
     DocumentList,
     ElementCreateRequest,
     ElementGenerateRequest,
+    DocumentVersionCreate,
     DocumentVersionSummary,
     DocumentVersionResponse,
     DocumentVersionList,
+    DocumentCommentCreate,
+    DocumentComment,
+    DocumentCommentList,
 )
 from app.services.document_service import DocumentService
 from app.services.context_service import ProjectContextService
@@ -94,6 +98,47 @@ def _load_versions(metadata: Dict[str, Any]) -> list[dict]:
     return versions if isinstance(versions, list) else []
 
 
+def _load_comments(metadata: Dict[str, Any]) -> list[dict]:
+    comments = metadata.get("comments") if isinstance(metadata, dict) else None
+    return comments if isinstance(comments, list) else []
+
+
+def _get_version_label(versions: list[dict], version_id: Optional[UUID]) -> Optional[str]:
+    if not version_id:
+        return None
+    for entry in versions:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("id")) == str(version_id):
+            return entry.get("version")
+    return None
+
+
+def _serialize_comment(entry: dict) -> Optional[dict]:
+    if not isinstance(entry, dict):
+        return None
+    comment_id = entry.get("id")
+    content = entry.get("content")
+    created_at = entry.get("created_at")
+    user_id = entry.get("user_id")
+    if not comment_id or not content or not created_at or not user_id:
+        return None
+    try:
+        created_at_dt = datetime.fromisoformat(str(created_at))
+    except (TypeError, ValueError):
+        created_at_dt = datetime.utcnow()
+    applied_ids = entry.get("applied_version_ids")
+    applied_list = applied_ids if isinstance(applied_ids, list) else None
+    return {
+        "id": UUID(str(comment_id)),
+        "content": str(content),
+        "created_at": created_at_dt,
+        "user_id": UUID(str(user_id)),
+        "version_id": UUID(str(entry.get("version_id"))) if entry.get("version_id") else None,
+        "applied_version_ids": applied_list,
+    }
+
+
 async def _ensure_versions_for_document(
     *,
     document: Document,
@@ -124,6 +169,8 @@ async def _ensure_versions_for_document(
             "instructions": None,
             "source_version_id": None,
             "source_version": None,
+            "source_type": None,
+            "source_comment_ids": None,
         }
     )
 
@@ -187,6 +234,8 @@ def _serialize_version(entry: dict, current_version: Optional[str], include_cont
         "instructions": entry.get("instructions"),
         "source_version_id": entry.get("source_version_id"),
         "source_version": entry.get("source_version"),
+        "source_type": entry.get("source_type"),
+        "source_comment_ids": entry.get("source_comment_ids"),
         "is_current": str(version) == str(current_version),
     }
     if include_content:
@@ -202,6 +251,7 @@ def _build_element_prompt(
     title: str,
     summary: str,
     user_instructions: str,
+    comment_block: str,
     context_block: str,
     min_words: Optional[int],
     max_words: Optional[int],
@@ -218,11 +268,13 @@ def _build_element_prompt(
         else "Write the full content."
     )
     source_block = f"Existing content to correct:\n{source_content}\n" if source_content else ""
+    comments = comment_block or "none"
     return (
         f"{mode.capitalize()} the {element_label.lower()} content for this project.\n"
         f"Title: {title}\n"
         f"Element type: {element_type}\n"
         f"User instructions: {user_instructions or 'none'}\n"
+        f"User comments:\n{comments}\n"
         f"Summary: {summary or 'none'}\n"
         f"{min_line}\n"
         f"{max_line}\n"
@@ -512,6 +564,7 @@ async def generate_element(
         )
     metadata = document.document_metadata or {}
     versions = _load_versions(metadata)
+    comments = _load_comments(metadata)
     source_content, source_version = _get_source_content(versions, payload.source_version_id)
     if payload.source_version_id and not source_content:
         raise HTTPException(
@@ -525,6 +578,39 @@ async def generate_element(
     if min_words:
         estimated = math.ceil(min_words / chunk_word_target)
         max_iterations = min(24, max(1, estimated + 2))
+
+    comment_lines: list[str] = []
+    comment_ids: list[str] = []
+    selected_comment_ids = (
+        {str(cid) for cid in payload.comment_ids} if payload.comment_ids is not None else None
+    )
+    if comments:
+        version_lookup = {
+            str(entry.get("id")): entry.get("version")
+            for entry in versions
+            if isinstance(entry, dict) and entry.get("id")
+        }
+        for entry in comments:
+            if not isinstance(entry, dict):
+                continue
+            comment_id = entry.get("id")
+            if selected_comment_ids is not None and str(comment_id) not in selected_comment_ids:
+                continue
+            content_text = str(entry.get("content") or "").strip()
+            if not content_text:
+                continue
+            if comment_id:
+                comment_ids.append(str(comment_id))
+            version_id = entry.get("version_id")
+            version_label = version_lookup.get(str(version_id)) if version_id else None
+            suffix = f" (version {version_label})" if version_label else ""
+            comment_lines.append(f"- {content_text}{suffix}")
+    comment_block = "\n".join(comment_lines)
+    if selected_comment_ids is not None and payload.comment_ids and not comment_lines:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Comment not found",
+        )
 
     llm_client = DeepSeekClient()
     content = ""
@@ -556,6 +642,7 @@ async def generate_element(
             title=document.title,
             summary=summary,
             user_instructions=user_instructions,
+            comment_block=comment_block,
             context_block=context_block,
             min_words=min_words,
             max_words=max_words,
@@ -611,6 +698,8 @@ async def generate_element(
                 "max_word_count": metadata.get("max_word_count"),
                 "summary": metadata.get("summary"),
                 "instructions": None,
+                "source_type": None,
+                "source_comment_ids": None,
             }
         )
         current_version = base_version
@@ -623,8 +712,14 @@ async def generate_element(
     else:
         next_version = "v1"
 
+    if source_content:
+        source_type = "commented_rewrite" if comment_lines else "rewrite"
+    else:
+        source_type = "commented_generate" if comment_lines else "generate"
+
+    version_id = str(uuid4())
     version_entry = {
-        "id": str(uuid4()),
+        "id": version_id,
         "version": next_version,
         "created_at": datetime.utcnow().isoformat(),
         "content": content.strip(),
@@ -635,13 +730,29 @@ async def generate_element(
         "instructions": user_instructions or None,
         "source_version_id": str(payload.source_version_id) if payload.source_version_id else None,
         "source_version": source_version,
+        "source_type": source_type,
+        "source_comment_ids": comment_ids or None,
     }
     versions.append(version_entry)
+
+    if comment_ids:
+        for entry in comments:
+            if not isinstance(entry, dict):
+                continue
+            entry_id = entry.get("id")
+            if not entry_id or str(entry_id) not in comment_ids:
+                continue
+            applied = entry.get("applied_version_ids")
+            applied_list = applied if isinstance(applied, list) else []
+            if version_id not in applied_list:
+                applied_list.append(version_id)
+            entry["applied_version_ids"] = applied_list
 
     metadata_updates = {
         **(metadata if isinstance(metadata, dict) else {}),
         "versions": versions,
         "current_version": next_version,
+        "comments": comments,
     }
     if min_words is not None:
         metadata_updates["min_word_count"] = min_words
@@ -655,6 +766,100 @@ async def generate_element(
     updated = await document_service.update(
         document_id,
         update_payload,
+        current_user.id,
+    )
+    return updated
+
+
+@router.post("/{document_id}/versions", response_model=DocumentResponse, status_code=status.HTTP_201_CREATED)
+async def create_document_version(
+    document_id: UUID,
+    payload: DocumentVersionCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Create a manual version for a document."""
+    document_service = DocumentService(db)
+    document = await document_service.get_by_id(document_id, current_user.id)
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    content = (payload.content or "").strip()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Content is required")
+
+    metadata = document.document_metadata or {}
+    versions = _load_versions(metadata)
+    current_version = metadata.get("current_version") if isinstance(metadata, dict) else None
+    existing_content = (document.content or "").strip()
+    if not versions and existing_content:
+        base_version = "v1"
+        versions.append(
+            {
+                "id": str(uuid4()),
+                "version": base_version,
+                "created_at": datetime.utcnow().isoformat(),
+                "content": existing_content,
+                "word_count": _count_words(existing_content),
+                "min_word_count": metadata.get("min_word_count"),
+                "max_word_count": metadata.get("max_word_count"),
+                "summary": metadata.get("summary"),
+                "instructions": None,
+                "source_type": None,
+                "source_comment_ids": None,
+            }
+        )
+        current_version = base_version
+
+    source_version_id: Optional[UUID] = payload.source_version_id
+    if source_version_id:
+        source_version = _get_version_label(versions, source_version_id)
+        if not source_version:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Source version not found")
+    else:
+        source_version = None
+        if current_version:
+            for entry in versions:
+                if isinstance(entry, dict) and str(entry.get("version")) == str(current_version):
+                    source_version_id = UUID(str(entry.get("id")))
+                    source_version = entry.get("version")
+                    break
+
+    if versions:
+        last_version = versions[-1].get("version") if isinstance(versions[-1], dict) else current_version
+        major, minor = _parse_version(str(last_version))
+        minor = minor + 1 if minor >= 0 else 1
+        next_version = _format_version(major, minor)
+    else:
+        next_version = "v1"
+
+    version_entry = {
+        "id": str(uuid4()),
+        "version": next_version,
+        "created_at": datetime.utcnow().isoformat(),
+        "content": content,
+        "word_count": _count_words(content),
+        "min_word_count": metadata.get("min_word_count"),
+        "max_word_count": metadata.get("max_word_count"),
+        "summary": metadata.get("summary"),
+        "instructions": None,
+        "source_version_id": str(source_version_id) if source_version_id else None,
+        "source_version": source_version,
+        "source_type": "manual_edit",
+        "source_comment_ids": None,
+        "edited_by": str(current_user.id),
+    }
+    versions.append(version_entry)
+
+    metadata_updates = {
+        **(metadata if isinstance(metadata, dict) else {}),
+        "versions": versions,
+        "current_version": next_version,
+    }
+
+    updated = await document_service.update(
+        document_id,
+        DocumentUpdate(content=content, metadata=metadata_updates),
         current_user.id,
     )
     return updated
@@ -686,6 +891,88 @@ async def list_document_versions(
         serialized.append(DocumentVersionSummary(**payload))
 
     return DocumentVersionList(versions=serialized, total=len(serialized))
+
+
+@router.get("/{document_id}/comments", response_model=DocumentCommentList)
+async def list_document_comments(
+    document_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """List comments for a document."""
+    document_service = DocumentService(db)
+    document = await document_service.get_by_id(document_id, current_user.id)
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    metadata = document.document_metadata or {}
+    comments = _load_comments(metadata)
+    serialized: list[DocumentComment] = []
+    for entry in comments:
+        payload = _serialize_comment(entry)
+        if not payload:
+            continue
+        serialized.append(DocumentComment(**payload))
+
+    return DocumentCommentList(comments=serialized, total=len(serialized))
+
+
+@router.post("/{document_id}/comments", response_model=DocumentComment, status_code=status.HTTP_201_CREATED)
+async def create_document_comment(
+    document_id: UUID,
+    payload: DocumentCommentCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """Create a comment for a document."""
+    document_service = DocumentService(db)
+    document = await document_service.get_by_id(document_id, current_user.id)
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+
+    content = (payload.content or "").strip()
+    if not content:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Comment content is required")
+
+    metadata = document.document_metadata or {}
+    versions, current_version = await _ensure_versions_for_document(
+        document=document,
+        document_service=document_service,
+        user_id=current_user.id,
+    )
+    if payload.version_id and not _get_version_label(versions, payload.version_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Version not found")
+
+    comments = _load_comments(metadata)
+
+    comment_entry = {
+        "id": str(uuid4()),
+        "content": content,
+        "created_at": datetime.utcnow().isoformat(),
+        "user_id": str(current_user.id),
+        "version_id": str(payload.version_id) if payload.version_id else None,
+        "applied_version_ids": [],
+    }
+    comments.append(comment_entry)
+
+    metadata_updates = {
+        **(metadata if isinstance(metadata, dict) else {}),
+        "comments": comments,
+    }
+    if versions:
+        metadata_updates["versions"] = versions
+    if current_version:
+        metadata_updates["current_version"] = current_version
+    await document_service.update(
+        document_id,
+        DocumentUpdate(metadata=metadata_updates),
+        current_user.id,
+    )
+
+    serialized = _serialize_comment(comment_entry)
+    if not serialized:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create comment")
+    return DocumentComment(**serialized)
 
 
 @router.get("/{document_id}/versions/{version_id}", response_model=DocumentVersionResponse)
