@@ -1,12 +1,108 @@
-﻿# THOTH - Assistant d'ecriture litteraire
+# THOTH - Assistant d'ecriture litteraire
 
-THOTH accompagne les auteurs francophones dans la creation de romans, nouvelles et autres oeuvres, avec un backend API, une interface web et une application mobile.
+THOTH accompagne les auteurs francophones pour structurer, generer et corriger des oeuvres longues
+(roman, nouvelles, essais). Le systeme combine une application web, un backend API et un pipeline
+IA oriente edition.
 
-## Stack
-- Backend: FastAPI 0.115, Python 3.11, SQLAlchemy, PostgreSQL, Redis, Qdrant
-- Frontend web: Next.js 15, TypeScript, Tailwind CSS
-- Mobile: React Native + Expo
-- IA: DeepSeek (chat + agents), LangChain, LangGraph
+## Architecture technique
+- Frontend web: Next.js 15, TypeScript, Tailwind CSS.
+- Backend API: FastAPI, Python 3.11, SQLAlchemy async.
+- Donnees: PostgreSQL (projets, documents, metadonnees), JSONB pour metadata.
+- Cache/queue: Redis (infrastructure disponible), Celery (squelette).
+- Vector store: Qdrant pour la RAG.
+- IA: DeepSeek pour la generation, LangGraph pour l orchestration, LangChain pour split/embeddings.
+- Uploads: stockage local via volume Docker.
+
+## Fonctionnalites (actuelles)
+### Projets
+- Creation, mise a jour, suppression avec confirmation.
+- Statut (brouillon/en cours/termine/archive).
+- Instructions de projet (contexte global reutilise a chaque generation).
+
+### Elements (structure editoriale)
+- Types: partie, chapitre, sous-chapitre, section.
+- Hierarchie imposee (pas de chapitre dans un sous-chapitre).
+- Contraintes par element: minimum/maximum de mots, resume, instructions.
+- Generation iterative pour atteindre le minimum de mots.
+
+### Versionning
+- Chaque generation/correction/edition cree une version (v1, v1.01, v1.02...).
+- Selection de version sur la liste et dans l apercu.
+- Metadonnees de version: source_version, source_type, source_comment_ids.
+- Correction ciblee d une version specifique.
+
+### Edition manuelle
+- Mode edition d une version: l utilisateur modifie le texte, une nouvelle version est creee.
+
+### Commentaires
+- Ajout de commentaires sur un element (associes a une version optionnelle).
+- Bouton "Prendre en compte" par commentaire: genere une nouvelle version en utilisant ce commentaire.
+- Commentaires deja pris en compte marques et exclus des corrections globales.
+
+### Personnages
+- Creation manuelle.
+- Generation automatique a partir du resume du projet + precision optionnelle.
+
+### Pipeline IA (LangGraph + RAG)
+- Indexation RAG dans Qdrant.
+- Generation de chapitre et de livre complet via pipeline orchestre.
+- Contexte assemble automatiquement (projet, instructions, personnages, documents).
+
+### Autres
+- Auth JWT (register/login/me).
+- Import de fichiers (txt, docx, pdf, md) vers documents.
+- Health check.
+
+## Flux de generation d un element
+1. L utilisateur cree un element (chapitre, section, etc.).
+2. Il renseigne resume, instructions et contraintes de mots.
+3. THOTH genere le contenu en plusieurs iterations si necessaire.
+4. Une nouvelle version est ajoutee (v1, v1.01, ...).
+5. Les commentaires peuvent etre pris en compte pour generer une correction ciblee.
+
+## Donnees et versionning (simplifie)
+Chaque document stocke des metadonnees JSONB, notamment:
+- element_type, element_index, parent_id
+- min_word_count, max_word_count, summary
+- versions[]: id, version, created_at, content, word_count,
+  source_type, source_version_id, source_comment_ids
+- comments[]: id, content, created_at, user_id, version_id, applied_version_ids
+
+## API (principaux endpoints)
+### Auth
+- POST /api/v1/auth/register
+- POST /api/v1/auth/login
+- GET /api/v1/auth/me
+
+### Projets
+- GET /api/v1/projects
+- POST /api/v1/projects
+- PUT /api/v1/projects/{id}
+- POST /api/v1/projects/{id}/delete
+- GET/POST/PUT/DELETE /api/v1/projects/{id}/instructions
+
+### Documents / Elements
+- GET /api/v1/documents?project_id=...
+- POST /api/v1/documents/elements
+- POST /api/v1/documents/{id}/generate
+- POST /api/v1/documents/{id}/versions (edition manuelle)
+- GET /api/v1/documents/{id}/versions
+- GET /api/v1/documents/{id}/versions/{version_id}
+- GET /api/v1/documents/{id}/comments
+- POST /api/v1/documents/{id}/comments
+
+### Personnages
+- GET /api/v1/characters?project_id=...
+- POST /api/v1/characters
+- POST /api/v1/characters/auto
+
+### Writing pipeline (LangGraph)
+- POST /api/v1/writing/index
+- POST /api/v1/writing/generate-chapter
+- POST /api/v1/writing/generate-book
+
+### Upload
+- POST /api/v1/upload
 
 ## Demarrage rapide (Docker)
 1. Copier `.env.example` vers `.env`
@@ -14,71 +110,29 @@ THOTH accompagne les auteurs francophones dans la creation de romans, nouvelles 
 3. Lancer `docker-compose up -d`
 
 Acces:
-- Web: http://localhost:3020
+- Web (Docker): http://localhost:3020
 - API: http://localhost:8002/api/v1
 - Docs API: http://localhost:8002/api/docs
 - Health: http://localhost:8002/health
 
-## Pipeline d'ecriture (LangChain + LangGraph)
-Le pipeline est orchestre par LangGraph et utilise LangChain pour le split et la recherche contextuelle (RAG).
-Il collecte le contexte d'ecriture automatiquement (projet, personnages, documents, contraintes), puis genere
-les chapitres avec retrieval sur Qdrant.
+## Configuration (.env)
+Variables cles:
+- DEEPSEEK_API_KEY, DEEPSEEK_API_BASE, DEEPSEEK_MODEL
+- SECRET_KEY
+- DATABASE_URL / POSTGRES_*
+- REDIS_URL
+- QDRANT_URL, QDRANT_COLLECTION_NAME
+- CHAT_MAX_TOKENS, DEEPSEEK_TIMEOUT
 
-Endpoints:
-- POST `/api/v1/writing/index` : indexer tous les documents d'un projet
-- POST `/api/v1/writing/generate-chapter` : generer un chapitre avec contexte et RAG
-- POST `/api/v1/writing/generate-book` : generer un livre complet (outline + chapitres)
+## Tests
+Backend: pytest (voir `backend/tests`).
 
-## Ce qui est fait
-### Backend (API)
-- Authentification JWT (register/login/me) et securite (hashing, ownership)
-- CRUD projets/documents/personnages avec pagination
-- Comptage automatique des mots (document et projet)
-- Chat THOTH avec contexte projet et historique persistant (DeepSeek)
-- Agents IA disponibles: narrative_architect, character_manager, style_expert, dialogue_master
-- Contexte projet assemble automatiquement pour les agents (via project_id)
-- Import de fichiers (txt, docx, pdf, md) vers documents, extraction et word count
-- RAG avec Qdrant (indexation + retrieval) et split LangChain
-- Pipeline d'ecriture LangGraph (plan -> generation -> sauvegarde chapitre)
-- Generation de livre complet (outline + chapitres)
-- Health check
-- Docker Compose (postgres, redis, qdrant, backend, frontend, celery)
+## Roadmap (extraits)
+- Renforcer les tests backend/front.
+- Edition riche (Tiptap) et autosave dans le frontend.
 
-### Frontend web (Next.js)
-- Pages d'authentification (login/register)
-- Dashboard moderne (stats, liste de projets, creation via wizard)
-- Page projet (vue d'ensemble + listes documents/personnages + chat contextuel)
-- Interface de chat integree
-
-### Mobile (React Native/Expo)
-- Authentification (login/register)
-- Dashboard avec stats et projets
-- Creation de projet
-- Detail de projet
-- Chat THOTH contextuel
-
-## Ce qui reste a faire
-### Backend / IA
-- Completer les 7 agents restants et leurs actions
-- Taches asynchrones avec Celery pour traitements lourds (indexation, imports, etc.)
-- Boucles de coherence multi-chapitres (relecture globale, contradictions, timeline)
-
-### Frontend web
-- Editeur Tiptap (ecriture, autosave)
-- Creation/edition/reorganisation des documents
-- Creation/edition des personnages
-- UI d'import de documents (branchee sur `/upload`)
-
-### Mobile
-- Gestion des documents (liste, edition)
-- Gestion des personnages
-- Import de documents
-
-### Qualite
-- Tests backend, web et mobile
-
-## Documentation encore utile
-- `ARCHITECTURE.md` (architecture technique)
-- `DEVELOPMENT.md` (guide de dev)
-- `API_TESTING_GUIDE.md` (tests API)
-- `DEPLOIEMENT_DOCKER.md` (deploiement Docker)
+## Documentation complementaire
+- ARCHITECTURE.md
+- DEVELOPMENT.md
+- API_TESTING_GUIDE.md
+- DEPLOIEMENT_DOCKER.md

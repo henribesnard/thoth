@@ -1,25 +1,37 @@
 """File upload endpoints"""
+from typing import Optional
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from uuid import UUID
+from sqlalchemy import select, func
 
 from app.db.session import get_db
 from app.models.user import User
 from app.models.project import Project
-from app.models.document import Document
+from app.models.document import Document, DocumentType
 from app.core.security import get_current_active_user
 from app.services.file_processor import FileProcessor
+from app.services.document_service import DocumentService
+from app.schemas.document import DocumentCreate
 from app.schemas.upload import UploadResponse
-from sqlalchemy import select
 
 router = APIRouter()
+
+
+async def _get_next_order_index(db: AsyncSession, project_id: UUID) -> int:
+    result = await db.execute(
+        select(func.max(Document.order_index)).where(Document.project_id == project_id)
+    )
+    max_index = result.scalar()
+    return (max_index + 1) if max_index is not None else 0
 
 
 @router.post("/", response_model=UploadResponse)
 async def upload_file(
     file: UploadFile = File(...),
     project_id: str = Form(...),
-    document_title: str = Form(None),
+    document_title: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ):
@@ -52,42 +64,40 @@ async def upload_file(
             )
 
         # Read file content
+        if not file.filename:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Filename is required"
+            )
         file_content = await file.read()
 
         # Process file
-        content, word_count = await FileProcessor.process_file(
-            file.filename,
-            file_content
-        )
+        content, _ = await FileProcessor.process_file(file.filename, file_content)
 
         # Create document
-        title = document_title or file.filename
-        document = Document(
-            title=title,
-            content=content,
-            type='chapter',  # Default type
-            order=0,  # Will be updated based on existing documents
-            word_count=word_count,
-            project_id=project_uuid,
-            metadata={
-                'original_filename': file.filename,
-                'file_type': file.content_type,
-            }
+        title = (document_title or file.filename).strip()
+        order_index = await _get_next_order_index(db, project_uuid)
+        document_service = DocumentService(db)
+        document = await document_service.create(
+            DocumentCreate(
+                title=title,
+                content=content,
+                document_type=DocumentType.CHAPTER,
+                order_index=order_index,
+                project_id=project_uuid,
+                metadata={
+                    "original_filename": file.filename,
+                    "file_type": file.content_type,
+                },
+            ),
+            current_user.id,
         )
-
-        db.add(document)
-
-        # Update project word count
-        project.current_word_count += word_count
-
-        await db.commit()
-        await db.refresh(document)
 
         return UploadResponse(
             success=True,
             message=f"File '{file.filename}' uploaded successfully",
             document_id=document.id,
-            word_count=word_count,
+            word_count=document.word_count,
             file_type=file.content_type,
         )
 

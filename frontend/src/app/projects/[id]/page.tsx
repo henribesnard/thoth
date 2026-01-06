@@ -926,8 +926,6 @@ export default function ProjectDetailPage() {
     const typeValue = getElementTypeFromDocument(doc)
     return getElementLevel(typeValue) < MAX_ELEMENT_LEVEL
   })
-  const previewMinWords = selectedVersion?.min_word_count ?? getMinWordCount(previewElement)
-  const previewMaxWords = selectedVersion?.max_word_count ?? getMaxWordCount(previewElement)
   const previewVersionLabel = selectedVersion?.version || ''
   const versionLabelById = new Map(versions.map((item) => [item.id, item.version]))
 
@@ -1110,14 +1108,10 @@ export default function ProjectDetailPage() {
                     const selectedDocVersionId = selectedVersionByDocId[doc.id] || ''
                     const selectedVersionMeta =
                       versionsForDoc.find((item) => item.id === selectedDocVersionId) || null
-                    const minWordCount = selectedVersionMeta?.min_word_count ?? getMinWordCount(doc)
-                    const maxWordCount = selectedVersionMeta?.max_word_count ?? getMaxWordCount(doc)
                     const currentVersion =
                       typeof doc.metadata?.current_version === 'string' ? doc.metadata.current_version : ''
                     const displayVersion = selectedVersionMeta?.version || currentVersion
                     const displayWordCount = selectedVersionMeta?.word_count ?? doc.word_count
-                    const minWordLabel = minWordCount ? ` - min ${formatWordCount(minWordCount)} mots` : ''
-                    const maxWordLabel = maxWordCount ? ` - max ${formatWordCount(maxWordCount)} mots` : ''
                     const versionLabel = displayVersion ? ` - ${displayVersion}` : ''
                     const isLoadingDocVersions = loadingVersionsByDocId[doc.id] || false
                     const docVersionError = versionErrorByDocId[doc.id]
@@ -1148,7 +1142,7 @@ export default function ProjectDetailPage() {
                               <div>
                                 <CardTitle>{doc.title}</CardTitle>
                                 <CardDescription className="mt-1">
-                                  {elementLabel} - {formatWordCount(displayWordCount)} mots{minWordLabel}{maxWordLabel}{versionLabel} -{' '}
+                                  {elementLabel} - {formatWordCount(displayWordCount)} mots{versionLabel} -{' '}
                                   {hasContent ? 'Rempli' : 'Vide'}
                                 </CardDescription>
                               </div>
@@ -1553,8 +1547,6 @@ export default function ProjectDetailPage() {
             {previewElement
               ? `${formatWordCount(selectedVersion?.word_count ?? previewElement.word_count)} mots`
               : 'Contenu'}
-            {previewMinWords ? ` - min ${formatWordCount(previewMinWords)} mots` : ''}
-            {previewMaxWords ? ` - max ${formatWordCount(previewMaxWords)} mots` : ''}
             {previewVersionLabel ? ` - ${previewVersionLabel}` : ''}
           </DialogDescription>
         </DialogHeader>
