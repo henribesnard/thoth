@@ -4,7 +4,7 @@
 
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import { getAuthToken } from '@/lib/api'
 import {
@@ -94,6 +94,7 @@ export default function ProjectDetailPage() {
   const [generateMinWords, setGenerateMinWords] = useState('')
   const [generateMaxWords, setGenerateMaxWords] = useState('')
   const [generateSummary, setGenerateSummary] = useState('')
+  const [generateSourceVersionId, setGenerateSourceVersionId] = useState('')
   const [generateError, setGenerateError] = useState('')
   const [isGeneratingElement, setIsGeneratingElement] = useState(false)
   const [showElementPreview, setShowElementPreview] = useState(false)
@@ -103,6 +104,11 @@ export default function ProjectDetailPage() {
   const [selectedVersion, setSelectedVersion] = useState<DocumentVersion | null>(null)
   const [isLoadingVersions, setIsLoadingVersions] = useState(false)
   const [versionError, setVersionError] = useState('')
+  const [versionsByDocId, setVersionsByDocId] = useState<Record<string, DocumentVersion[]>>({})
+  const [selectedVersionByDocId, setSelectedVersionByDocId] = useState<Record<string, string>>({})
+  const [versionErrorByDocId, setVersionErrorByDocId] = useState<Record<string, string>>({})
+  const [loadingVersionsByDocId, setLoadingVersionsByDocId] = useState<Record<string, boolean>>({})
+  const loadedVersionsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     const token = getAuthToken()
@@ -124,6 +130,7 @@ export default function ProjectDetailPage() {
         const list = await listDocumentVersions(previewElement.id)
         if (cancelled) return
         setVersions(list)
+        setVersionsByDocId((prev) => ({ ...prev, [previewElement.id]: list }))
 
         if (!list.length) {
           setSelectedVersion(null)
@@ -131,8 +138,21 @@ export default function ProjectDetailPage() {
           return
         }
 
-        const current = list.find((item) => item.is_current) || list[list.length - 1]
+        const preferredVersionId =
+          selectedVersionId || selectedVersionByDocId[previewElement.id] || ''
+        const preferred = preferredVersionId
+          ? list.find((item) => item.id === preferredVersionId)
+          : null
+        const current = preferred || list.find((item) => item.is_current) || list[list.length - 1]
+
+        if (!current) {
+          setSelectedVersion(null)
+          setSelectedVersionId('')
+          return
+        }
+
         setSelectedVersionId(current.id)
+        setSelectedVersionByDocId((prev) => ({ ...prev, [previewElement.id]: current.id }))
         const full = await getDocumentVersion(previewElement.id, current.id)
         if (cancelled) return
         setSelectedVersion(full)
@@ -173,6 +193,38 @@ export default function ProjectDetailPage() {
       setLoading(false)
     }
   }
+
+  const loadVersionsForDoc = async (documentId: string, force = false) => {
+    if (!force && loadedVersionsRef.current.has(documentId)) return
+    try {
+      setLoadingVersionsByDocId((prev) => ({ ...prev, [documentId]: true }))
+      setVersionErrorByDocId((prev) => ({ ...prev, [documentId]: '' }))
+      const list = await listDocumentVersions(documentId)
+      loadedVersionsRef.current.add(documentId)
+      setVersionsByDocId((prev) => ({ ...prev, [documentId]: list }))
+      if (!selectedVersionByDocId[documentId] && list.length) {
+        const current = list.find((item) => item.is_current) || list[list.length - 1]
+        if (current) {
+          setSelectedVersionByDocId((prev) => ({ ...prev, [documentId]: current.id }))
+        }
+      }
+    } catch (error) {
+      setVersionErrorByDocId((prev) => ({
+        ...prev,
+        [documentId]: error instanceof Error ? error.message : 'Impossible de charger les versions',
+      }))
+    } finally {
+      setLoadingVersionsByDocId((prev) => ({ ...prev, [documentId]: false }))
+    }
+  }
+
+  useEffect(() => {
+    documents.forEach((doc) => {
+      if (doc.content && doc.content.trim()) {
+        void loadVersionsForDoc(doc.id)
+      }
+    })
+  }, [documents])
 
   const resetDeleteDialog = () => {
     setShowDeleteDialog(false)
@@ -239,11 +291,15 @@ export default function ProjectDetailPage() {
     setGenerateMinWords('')
     setGenerateMaxWords('')
     setGenerateSummary('')
+    setGenerateSourceVersionId('')
     setGenerateError('')
   }
 
-  const openElementPreview = (doc: Document) => {
+  const openElementPreview = (doc: Document, preferredVersionId?: string) => {
+    const versionId = preferredVersionId || selectedVersionByDocId[doc.id] || ''
     setPreviewElement(doc)
+    setSelectedVersionId(versionId)
+    setSelectedVersion(null)
     setShowElementPreview(true)
   }
 
@@ -463,8 +519,15 @@ export default function ProjectDetailPage() {
     }
   }
 
+  const handleSelectVersionForDoc = (documentId: string, versionId: string) => {
+    setSelectedVersionByDocId((prev) => ({ ...prev, [documentId]: versionId }))
+  }
+
   const handleSelectVersion = async (versionId: string) => {
     setSelectedVersionId(versionId)
+    if (previewElement) {
+      setSelectedVersionByDocId((prev) => ({ ...prev, [previewElement.id]: versionId }))
+    }
     if (!previewElement || !versionId) {
       setSelectedVersion(null)
       return
@@ -481,15 +544,28 @@ export default function ProjectDetailPage() {
     }
   }
 
-  const openGenerateDialog = (doc: Document) => {
+  const handleCorrectSelectedVersion = () => {
+    if (!previewElement) return
+    const version = selectedVersion || versions.find((item) => item.id === selectedVersionId) || null
+    openGenerateDialog(previewElement, version)
+    resetElementPreview()
+  }
+
+  const openGenerateDialog = (doc: Document, version?: DocumentVersion | null) => {
     setGenerateTarget(doc)
-    setGenerateInstructions('')
-    const existingMin = getMinWordCount(doc)
+    setGenerateInstructions(version?.instructions || '')
+    const existingMin = version?.min_word_count ?? getMinWordCount(doc)
     setGenerateMinWords(existingMin ? String(existingMin) : '')
-    const existingMax = getMaxWordCount(doc)
+    const existingMax = version?.max_word_count ?? getMaxWordCount(doc)
     setGenerateMaxWords(existingMax ? String(existingMax) : '')
-    const existingSummary = typeof doc.metadata?.summary === 'string' ? doc.metadata.summary : ''
+    const existingSummary =
+      typeof version?.summary === 'string'
+        ? version.summary
+        : typeof doc.metadata?.summary === 'string'
+        ? doc.metadata.summary
+        : ''
     setGenerateSummary(existingSummary)
+    setGenerateSourceVersionId(version?.id || '')
     setGenerateError('')
     setShowGenerateDialog(true)
   }
@@ -533,9 +609,11 @@ export default function ProjectDetailPage() {
         generateInstructions.trim() || undefined,
         minWordCount,
         maxWordCount,
-        generateSummary.trim() || undefined
+        generateSummary.trim() || undefined,
+        generateSourceVersionId || undefined
       )
       setDocuments((prev) => prev.map((doc) => (doc.id === updated.id ? updated : doc)))
+      void loadVersionsForDoc(updated.id, true)
       resetGenerateDialog()
     } catch (error) {
       setGenerateError(error instanceof Error ? error.message : 'Une erreur est survenue')
@@ -679,6 +757,7 @@ export default function ProjectDetailPage() {
   })
   const previewMinWords = selectedVersion?.min_word_count ?? getMinWordCount(previewElement)
   const previewMaxWords = selectedVersion?.max_word_count ?? getMaxWordCount(previewElement)
+  const previewVersionLabel = selectedVersion?.version || ''
 
   return (
     <div className="min-h-screen bg-atlas">
@@ -855,23 +934,49 @@ export default function ProjectDetailPage() {
                     const elementLabel = getElementLabel(elementTypeValue)
                     const depth = getElementDepth(doc, documentMap)
                     const hasContent = Boolean(doc.content && doc.content.trim())
-                    const minWordCount = getMinWordCount(doc)
-                    const maxWordCount = getMaxWordCount(doc)
+                    const versionsForDoc = versionsByDocId[doc.id] || []
+                    const selectedDocVersionId = selectedVersionByDocId[doc.id] || ''
+                    const selectedVersionMeta =
+                      versionsForDoc.find((item) => item.id === selectedDocVersionId) || null
+                    const minWordCount = selectedVersionMeta?.min_word_count ?? getMinWordCount(doc)
+                    const maxWordCount = selectedVersionMeta?.max_word_count ?? getMaxWordCount(doc)
+                    const currentVersion =
+                      typeof doc.metadata?.current_version === 'string' ? doc.metadata.current_version : ''
+                    const displayVersion = selectedVersionMeta?.version || currentVersion
+                    const displayWordCount = selectedVersionMeta?.word_count ?? doc.word_count
                     const minWordLabel = minWordCount ? ` - min ${formatWordCount(minWordCount)} mots` : ''
                     const maxWordLabel = maxWordCount ? ` - max ${formatWordCount(maxWordCount)} mots` : ''
+                    const versionLabel = displayVersion ? ` - ${displayVersion}` : ''
+                    const isLoadingDocVersions = loadingVersionsByDocId[doc.id] || false
+                    const docVersionError = versionErrorByDocId[doc.id]
+                    const versionOptions = versionsForDoc.length
+                      ? versionsForDoc.map((item) => ({
+                          value: item.id,
+                          label: `${item.version} - ${formatDate(item.created_at)}${
+                            item.is_current ? ' (actuelle)' : ''
+                          }`,
+                        }))
+                      : [
+                          {
+                            value: '',
+                            label: isLoadingDocVersions
+                              ? 'Chargement des versions...'
+                              : 'Charger les versions',
+                          },
+                        ]
                     return (
                       <div key={doc.id} style={{ marginLeft: depth * 20 }}>
                         <Card
                           variant="elevated"
                           hoverable
-                          onClick={() => openElementPreview(doc)}
+                          onClick={() => openElementPreview(doc, selectedDocVersionId || undefined)}
                         >
                           <CardHeader>
                             <div className="flex flex-wrap items-start justify-between gap-4">
                               <div>
                                 <CardTitle>{doc.title}</CardTitle>
                                 <CardDescription className="mt-1">
-                                  {elementLabel} - {formatWordCount(doc.word_count)} mots{minWordLabel}{maxWordLabel} -{' '}
+                                  {elementLabel} - {formatWordCount(displayWordCount)} mots{minWordLabel}{maxWordLabel}{versionLabel} -{' '}
                                   {hasContent ? 'Rempli' : 'Vide'}
                                 </CardDescription>
                               </div>
@@ -883,6 +988,10 @@ export default function ProjectDetailPage() {
                                   variant="outline"
                                   onClick={(event) => {
                                     event.stopPropagation()
+                                    if (hasContent) {
+                                      openElementPreview(doc, selectedDocVersionId || undefined)
+                                      return
+                                    }
                                     openGenerateDialog(doc)
                                   }}
                                 >
@@ -891,6 +1000,36 @@ export default function ProjectDetailPage() {
                               </div>
                             </div>
                           </CardHeader>
+                          {hasContent && (
+                            <CardContent className="pt-0">
+                              <div
+                                className="flex flex-wrap items-center gap-2"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <div className="min-w-[220px] flex-1 sm:max-w-xs">
+                                  <Select
+                                    label="Version"
+                                    value={selectedDocVersionId}
+                                    onChange={(event) =>
+                                      handleSelectVersionForDoc(doc.id, event.target.value)
+                                    }
+                                    onFocus={() => {
+                                      void loadVersionsForDoc(doc.id)
+                                    }}
+                                    options={versionOptions}
+                                    disabled={isLoadingDocVersions}
+                                    className="h-9 text-xs"
+                                  />
+                                </div>
+                                {isLoadingDocVersions && (
+                                  <span className="text-xs text-ink/60">Chargement...</span>
+                                )}
+                                {docVersionError && (
+                                  <span className="text-xs text-red-600">{docVersionError}</span>
+                                )}
+                              </div>
+                            </CardContent>
+                          )}
                         </Card>
                       </div>
                     )
@@ -1007,7 +1146,7 @@ export default function ProjectDetailPage() {
             Cette action est irreversible. Tapez le nom du projet pour confirmer.
           </DialogDescription>
         </DialogHeader>
-        <DialogContent className="space-y-4">
+        <DialogContent className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
             Nom attendu: <span className="font-semibold">{project?.title}</span>
           </div>
@@ -1244,6 +1383,7 @@ export default function ProjectDetailPage() {
               : 'Contenu'}
             {previewMinWords ? ` - min ${formatWordCount(previewMinWords)} mots` : ''}
             {previewMaxWords ? ` - max ${formatWordCount(previewMaxWords)} mots` : ''}
+            {previewVersionLabel ? ` - ${previewVersionLabel}` : ''}
           </DialogDescription>
         </DialogHeader>
         <DialogContent className="space-y-4">
@@ -1262,19 +1402,31 @@ export default function ProjectDetailPage() {
               disabled={isLoadingVersions}
             />
           )}
+          {!isLoadingVersions && versions.length === 0 && (
+            <div className="rounded-2xl border border-stone-200 bg-white/80 px-4 py-3 text-sm text-ink/70">
+              Aucune version disponible pour cet element.
+            </div>
+          )}
+          {isLoadingVersions && (
+            <div className="rounded-2xl border border-stone-200 bg-white/80 px-4 py-3 text-sm text-ink/70">
+              Chargement des versions...
+            </div>
+          )}
           {versionError && (
             <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
               {versionError}
             </div>
           )}
           {selectedVersion?.summary && (
-            <div className="rounded-2xl border border-stone-200 bg-white/80 px-4 py-3 text-sm text-ink/70">
-              <span className="font-semibold text-ink">Resume:</span> {selectedVersion.summary}
+            <div className="rounded-2xl border border-stone-200 bg-white/80 px-4 py-3 text-sm text-ink/70 whitespace-pre-wrap max-h-[30vh] overflow-y-auto pr-1">
+              <span className="font-semibold text-ink">Resume:</span>
+              <div className="mt-2">{selectedVersion.summary}</div>
             </div>
           )}
           {selectedVersion?.instructions && (
-            <div className="rounded-2xl border border-stone-200 bg-white/80 px-4 py-3 text-sm text-ink/70 whitespace-pre-wrap">
-              <span className="font-semibold text-ink">Instructions:</span> {selectedVersion.instructions}
+            <div className="rounded-2xl border border-stone-200 bg-white/80 px-4 py-3 text-sm text-ink/70 whitespace-pre-wrap max-h-[30vh] overflow-y-auto pr-1">
+              <span className="font-semibold text-ink">Instructions:</span>
+              <div className="mt-2">{selectedVersion.instructions}</div>
             </div>
           )}
           <div className="rounded-2xl border border-stone-200 bg-white/80 px-4 py-3 text-sm text-ink/70 whitespace-pre-wrap max-h-[60vh] overflow-y-auto">
@@ -1286,6 +1438,13 @@ export default function ProjectDetailPage() {
           </div>
         </DialogContent>
         <DialogFooter>
+          <Button
+            variant="primary"
+            onClick={handleCorrectSelectedVersion}
+            disabled={!previewElement || !selectedVersionId || isLoadingVersions}
+          >
+            Corriger cette version
+          </Button>
           <Button variant="ghost" onClick={resetElementPreview}>
             Fermer
           </Button>

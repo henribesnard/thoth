@@ -84,6 +84,8 @@ export interface DocumentVersion {
   max_word_count?: number;
   summary?: string;
   instructions?: string;
+  source_version_id?: string;
+  source_version?: string;
   content?: string;
   is_current?: boolean;
 }

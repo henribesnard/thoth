@@ -1,6 +1,7 @@
 """LLM client wrapper for DeepSeek API."""
 from typing import List, Dict, Optional
 import httpx
+from httpx import ReadTimeout
 
 from app.core.config import settings
 
@@ -34,13 +35,20 @@ class DeepSeekClient:
 
         timeout = httpx.Timeout(settings.DEEPSEEK_TIMEOUT, read=settings.DEEPSEEK_TIMEOUT)
         async with httpx.AsyncClient(timeout=timeout) as client:
-            response = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
-            if response.status_code != 200:
-                raise RuntimeError(f"DeepSeek API error: {response.text}")
+            try:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                if response.status_code != 200:
+                    raise RuntimeError(f"DeepSeek API error: {response.text}")
+            except ReadTimeout:
+                raise
+            except httpx.HTTPError as exc:
+                raise RuntimeError(
+                    "DeepSeek connection error. Please retry in a moment."
+                ) from exc
 
             result = response.json()
             return result["choices"][0]["message"]["content"]

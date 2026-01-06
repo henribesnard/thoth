@@ -94,6 +94,70 @@ def _load_versions(metadata: Dict[str, Any]) -> list[dict]:
     return versions if isinstance(versions, list) else []
 
 
+async def _ensure_versions_for_document(
+    *,
+    document: Document,
+    document_service: DocumentService,
+    user_id: UUID,
+) -> tuple[list[dict], Optional[str]]:
+    metadata = document.document_metadata or {}
+    versions = _load_versions(metadata)
+    current_version = metadata.get("current_version") if isinstance(metadata, dict) else None
+    if versions:
+        return versions, current_version
+
+    content = (document.content or "").strip()
+    if not content:
+        return versions, current_version
+
+    base_version = "v1"
+    versions.append(
+        {
+            "id": str(uuid4()),
+            "version": base_version,
+            "created_at": datetime.utcnow().isoformat(),
+            "content": content,
+            "word_count": _count_words(content),
+            "min_word_count": metadata.get("min_word_count"),
+            "max_word_count": metadata.get("max_word_count"),
+            "summary": metadata.get("summary"),
+            "instructions": None,
+            "source_version_id": None,
+            "source_version": None,
+        }
+    )
+
+    metadata_updates = {
+        **(metadata if isinstance(metadata, dict) else {}),
+        "versions": versions,
+        "current_version": base_version,
+    }
+    await document_service.update(
+        document.id,
+        DocumentUpdate(metadata=metadata_updates),
+        user_id,
+    )
+    return versions, base_version
+
+
+def _get_source_content(versions: list[dict], source_version_id: Optional[UUID]) -> tuple[str, Optional[str]]:
+    if not source_version_id:
+        return ("", None)
+    for entry in versions:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("id")) == str(source_version_id):
+            content = str(entry.get("content") or "")
+            source_version = entry.get("version")
+            if len(content) <= 3200:
+                return (content, source_version)
+            head = content[:1600]
+            tail = content[-1600:]
+            excerpt = f"{head}\n\n[...]\n\n{tail}"
+            return (excerpt, source_version)
+    return ("", None)
+
+
 def _serialize_version(entry: dict, current_version: Optional[str], include_content: bool) -> Optional[dict]:
     if not isinstance(entry, dict):
         return None
@@ -121,6 +185,8 @@ def _serialize_version(entry: dict, current_version: Optional[str], include_cont
         "max_word_count": entry.get("max_word_count"),
         "summary": entry.get("summary"),
         "instructions": entry.get("instructions"),
+        "source_version_id": entry.get("source_version_id"),
+        "source_version": entry.get("source_version"),
         "is_current": str(version) == str(current_version),
     }
     if include_content:
@@ -142,6 +208,7 @@ def _build_element_prompt(
     current_words: int,
     chunk_target: Optional[int],
     continuation_hint: str,
+    source_content: str,
 ) -> str:
     min_line = f"Minimum word count: {min_words}" if min_words else "Minimum word count: none"
     max_line = f"Maximum word count: {max_words}" if max_words else "Maximum word count: none"
@@ -150,6 +217,7 @@ def _build_element_prompt(
         if chunk_target
         else "Write the full content."
     )
+    source_block = f"Existing content to correct:\n{source_content}\n" if source_content else ""
     return (
         f"{mode.capitalize()} the {element_label.lower()} content for this project.\n"
         f"Title: {title}\n"
@@ -161,6 +229,7 @@ def _build_element_prompt(
         f"Current word count: {current_words}\n"
         f"{chunk_line}\n"
         f"{continuation_hint}\n\n"
+        f"{source_block}"
         f"{context_block}\n"
         "Return only the next part of the content without repeating earlier text."
     )
@@ -441,6 +510,16 @@ async def generate_element(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Maximum word count must be greater than or equal to minimum word count",
         )
+    metadata = document.document_metadata or {}
+    versions = _load_versions(metadata)
+    source_content, source_version = _get_source_content(versions, payload.source_version_id)
+    if payload.source_version_id and not source_content:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Source version not found",
+        )
+    if source_content:
+        mode = "rewrite"
     chunk_word_target = 1200
     max_iterations = 1
     if min_words:
@@ -483,6 +562,7 @@ async def generate_element(
             current_words=current_words,
             chunk_target=chunk_target,
             continuation_hint=continuation_hint,
+            source_content=source_content,
         )
         try:
             part = await llm_client.chat(
@@ -516,8 +596,6 @@ async def generate_element(
         if not min_words:
             break
 
-    metadata = document.document_metadata or {}
-    versions = _load_versions(metadata)
     current_version = metadata.get("current_version") if isinstance(metadata, dict) else None
     existing_content = (document.content or "").strip()
     if not versions and existing_content:
@@ -555,6 +633,8 @@ async def generate_element(
         "max_word_count": max_words,
         "summary": summary or None,
         "instructions": user_instructions or None,
+        "source_version_id": str(payload.source_version_id) if payload.source_version_id else None,
+        "source_version": source_version,
     }
     versions.append(version_entry)
 
@@ -593,8 +673,11 @@ async def list_document_versions(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
     metadata = document.document_metadata or {}
-    versions = _load_versions(metadata)
-    current_version = metadata.get("current_version") if isinstance(metadata, dict) else None
+    versions, current_version = await _ensure_versions_for_document(
+        document=document,
+        document_service=document_service,
+        user_id=current_user.id,
+    )
     serialized: list[DocumentVersionSummary] = []
     for entry in versions:
         payload = _serialize_version(entry, current_version, include_content=False)
@@ -619,8 +702,11 @@ async def get_document_version(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
 
     metadata = document.document_metadata or {}
-    versions = _load_versions(metadata)
-    current_version = metadata.get("current_version") if isinstance(metadata, dict) else None
+    versions, current_version = await _ensure_versions_for_document(
+        document=document,
+        document_service=document_service,
+        user_id=current_user.id,
+    )
     for entry in versions:
         if str(entry.get("id")) != str(version_id):
             continue

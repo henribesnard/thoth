@@ -33,6 +33,8 @@ class DocumentUpdate(BaseModel):
         serialization_alias="metadata",
     )
 
+    model_config = ConfigDict(populate_by_name=True)
+
 
 class DocumentResponse(DocumentBase):
     """Schema for document response"""
@@ -70,6 +72,7 @@ class ElementGenerateRequest(BaseModel):
     min_word_count: Optional[int] = Field(None, ge=1)
     max_word_count: Optional[int] = Field(None, ge=1)
     summary: Optional[str] = None
+    source_version_id: Optional[UUID] = None
 
 
 class DocumentVersionSummary(BaseModel):
@@ -82,6 +85,8 @@ class DocumentVersionSummary(BaseModel):
     max_word_count: Optional[int] = None
     summary: Optional[str] = None
     instructions: Optional[str] = None
+    source_version_id: Optional[str] = None
+    source_version: Optional[str] = None
     is_current: bool = False
 
 
