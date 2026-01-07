@@ -1,13 +1,17 @@
 """Projects endpoints"""
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import List
 from uuid import UUID, uuid4
 from datetime import datetime
+import re
 import unicodedata
 
 from app.db.session import get_db
 from app.models.user import User
+from app.models.document import Document
 from app.schemas.project import (
     ProjectCreate,
     ProjectUpdate,
@@ -58,6 +62,14 @@ def _serialize_instruction(raw: dict) -> InstructionResponse:
         detail=str(raw.get("detail")),
         created_at=created_at,
     )
+
+
+def _safe_filename(value: str, fallback: str) -> str:
+    cleaned = re.sub(r"[^\w\s-]", "", (value or "").strip())
+    cleaned = re.sub(r"\s+", "-", cleaned).strip("-")
+    if not cleaned:
+        return fallback
+    return cleaned[:120]
 
 
 @router.get("/", response_model=ProjectList)
@@ -124,6 +136,47 @@ async def get_project(
         )
 
     return project
+
+
+@router.get("/{project_id}/download")
+async def download_project(
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    Download all project elements in order as a markdown file.
+    """
+    project_service = ProjectService(db)
+    project = await project_service.get_by_id(project_id, current_user.id)
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    documents_result = await db.execute(
+        select(Document).where(Document.project_id == project_id).order_by(Document.order_index.asc())
+    )
+    documents = documents_result.scalars().all()
+
+    parts: list[str] = []
+    if project.title:
+        parts.append(f"# {project.title}")
+    if project.description:
+        parts.append(project.description)
+
+    for doc in documents:
+        if doc.title:
+            parts.append(f"## {doc.title}")
+        if doc.content:
+            parts.append(doc.content)
+
+    payload = "\n\n".join(parts)
+    filename = f"{_safe_filename(project.title or 'project', 'project')}.md"
+
+    return Response(
+        content=payload,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.put("/{project_id}", response_model=ProjectResponse)

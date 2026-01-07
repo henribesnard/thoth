@@ -5,6 +5,7 @@ from datetime import datetime
 from uuid import uuid4
 from httpx import ReadTimeout
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from typing import Dict, Any, Optional
@@ -91,6 +92,14 @@ def _format_version(major: int, minor: int) -> str:
     if minor <= 0:
         return f"v{major}"
     return f"v{major}.{minor:02d}"
+
+
+def _safe_filename(value: str, fallback: str) -> str:
+    cleaned = re.sub(r"[^\w\s-]", "", (value or "").strip())
+    cleaned = re.sub(r"\s+", "-", cleaned).strip("-")
+    if not cleaned:
+        return fallback
+    return cleaned[:120]
 
 
 def _load_versions(metadata: Dict[str, Any]) -> list[dict]:
@@ -434,6 +443,39 @@ async def get_document(
         )
 
     return document
+
+
+@router.get("/{document_id}/download")
+async def download_document(
+    document_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    Download a single document as a markdown file.
+    """
+    document_service = DocumentService(db)
+    document = await document_service.get_by_id(document_id, current_user.id)
+    if not document:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        )
+
+    title = document.title or "document"
+    filename = f"{_safe_filename(title, 'document')}.md"
+    content_parts = []
+    if document.title:
+        content_parts.append(f"# {document.title}")
+    if document.content:
+        content_parts.append(document.content)
+    payload = "\n\n".join(content_parts)
+
+    return Response(
+        content=payload,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.put("/{document_id}", response_model=DocumentResponse)

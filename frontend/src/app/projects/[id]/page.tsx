@@ -25,6 +25,8 @@ import {
   updateInstruction,
   deleteInstruction,
   deleteProject,
+  downloadDocument,
+  downloadProject,
 } from '@/lib/api-extended'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card'
@@ -66,6 +68,9 @@ export default function ProjectDetailPage() {
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
   const [deleteError, setDeleteError] = useState('')
   const [isDeleting, setIsDeleting] = useState(false)
+  const [isDownloadingProject, setIsDownloadingProject] = useState(false)
+  const [downloadingElementId, setDownloadingElementId] = useState<string | null>(null)
+  const [downloadError, setDownloadError] = useState('')
   const [showCharacterDialog, setShowCharacterDialog] = useState(false)
   const [characterForm, setCharacterForm] = useState({
     name: '',
@@ -233,6 +238,45 @@ export default function ProjectDetailPage() {
       console.error('Failed to load project data:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const triggerDownload = (blob: Blob, filename: string) => {
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+  }
+
+  const handleDownloadProject = async () => {
+    if (!project || isDownloadingProject) return
+    try {
+      setIsDownloadingProject(true)
+      setDownloadError('')
+      const { blob, filename } = await downloadProject(project.id)
+      triggerDownload(blob, filename)
+    } catch (error) {
+      setDownloadError(error instanceof Error ? error.message : 'Une erreur est survenue')
+    } finally {
+      setIsDownloadingProject(false)
+    }
+  }
+
+  const handleDownloadElement = async (doc: Document) => {
+    if (!doc || downloadingElementId) return
+    try {
+      setDownloadingElementId(doc.id)
+      setDownloadError('')
+      const { blob, filename } = await downloadDocument(doc.id)
+      triggerDownload(blob, filename)
+    } catch (error) {
+      setDownloadError(error instanceof Error ? error.message : 'Une erreur est survenue')
+    } finally {
+      setDownloadingElementId(null)
     }
   }
 
@@ -957,6 +1001,13 @@ export default function ProjectDetailPage() {
               <Button variant="primary" onClick={() => setShowElementDialog(true)}>
                 Ajouter un element
               </Button>
+              <Button
+                variant="outline"
+                onClick={handleDownloadProject}
+                disabled={!project || isDownloadingProject}
+              >
+                {isDownloadingProject ? 'Telechargement...' : 'Telecharger le projet'}
+              </Button>
               <Button variant="danger" onClick={() => setShowDeleteDialog(true)}>
                 Supprimer
               </Button>
@@ -1087,6 +1138,12 @@ export default function ProjectDetailPage() {
                 </Button>
               </div>
 
+              {downloadError && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {downloadError}
+                </div>
+              )}
+
               {sortedDocuments.length === 0 ? (
                 <Card variant="outlined" className="p-12 text-center">
                   <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-stone-200 text-ink">
@@ -1150,6 +1207,18 @@ export default function ProjectDetailPage() {
                                 <Badge variant={hasContent ? 'success' : 'warning'}>
                                   {hasContent ? 'Pret' : 'A generer'}
                                 </Badge>
+                                <Button
+                                  variant="outline"
+                                  onClick={(event) => {
+                                    event.stopPropagation()
+                                    if (hasContent) {
+                                      void handleDownloadElement(doc)
+                                    }
+                                  }}
+                                  disabled={!hasContent || downloadingElementId === doc.id}
+                                >
+                                  {downloadingElementId === doc.id ? 'Telechargement...' : 'Telecharger'}
+                                </Button>
                                 <Button
                                   variant="outline"
                                   onClick={(event) => {

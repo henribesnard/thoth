@@ -24,6 +24,7 @@ IA oriente edition.
 - Hierarchie imposee (pas de chapitre dans un sous-chapitre).
 - Contraintes par element: minimum/maximum de mots, resume, instructions.
 - Generation iterative pour atteindre le minimum de mots.
+- Telechargement d un element en Markdown.
 
 ### Versionning
 - Chaque generation/correction/edition cree une version (v1, v1.01, v1.02...).
@@ -51,6 +52,7 @@ IA oriente edition.
 ### Autres
 - Auth JWT (register/login/me).
 - Import de fichiers (txt, docx, pdf, md) vers documents.
+- Telechargement d un projet complet (elements ordonnes) en Markdown.
 - Health check.
 
 ## Flux de generation d un element
@@ -79,6 +81,7 @@ Chaque document stocke des metadonnees JSONB, notamment:
 - POST /api/v1/projects
 - PUT /api/v1/projects/{id}
 - POST /api/v1/projects/{id}/delete
+- GET /api/v1/projects/{id}/download
 - GET/POST/PUT/DELETE /api/v1/projects/{id}/instructions
 
 ### Documents / Elements
@@ -88,6 +91,7 @@ Chaque document stocke des metadonnees JSONB, notamment:
 - POST /api/v1/documents/{id}/versions (edition manuelle)
 - GET /api/v1/documents/{id}/versions
 - GET /api/v1/documents/{id}/versions/{version_id}
+- GET /api/v1/documents/{id}/download
 - GET /api/v1/documents/{id}/comments
 - POST /api/v1/documents/{id}/comments
 
@@ -130,9 +134,3 @@ Backend: pytest (voir `backend/tests`).
 ## Roadmap (extraits)
 - Renforcer les tests backend/front.
 - Edition riche (Tiptap) et autosave dans le frontend.
-
-## Documentation complementaire
-- ARCHITECTURE.md
-- DEVELOPMENT.md
-- API_TESTING_GUIDE.md
-- DEPLOIEMENT_DOCKER.md
