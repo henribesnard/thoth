@@ -131,6 +131,34 @@ Variables cles:
 ## Tests
 Backend: pytest (voir `backend/tests`).
 
+## Revue technique (points d attention)
+Les points suivants ont ete identifies lors d une revue rapide du code. Ils sont
+documentes ici afin de guider les prochaines ameliorations :
+
+1. **Rate limiting incoherent et non centralise**
+   - Le rate limiting global est code en dur (100/minute) alors qu une variable
+     de configuration existe (`RATE_LIMIT_PER_MINUTE`).
+   - Les endpoints d auth utilisent un `Limiter` local different de celui
+     configure au niveau de l application.
+   - **Recommendation** : centraliser une seule instance de `Limiter` et la
+     parametrier via `settings.RATE_LIMIT_PER_MINUTE` pour une cohérence globale.
+
+2. **Erreurs de validation upload renvoyees en 500**
+   - Les erreurs de validation (extension non supportee, taille trop grande)
+     sont levees comme des exceptions generiques et ressortent en 500.
+   - **Recommendation** : mapper ces erreurs en 4xx (400/413) et reserver le 500
+     aux erreurs serveur inattendues.
+
+3. **Normalisation des emails absente**
+   - L email est utilise tel quel lors de l inscription / authentification.
+     Cela peut provoquer des doublons par variation de casse ou des echec de
+     login.
+   - **Recommendation** : normaliser les emails (`strip().lower()`) et,
+     idealement, ajouter une contrainte ou un index case-insensitive en base.
+
+Dependances potentiellement necessaires si vous implementez les points ci-dessus :
+- Aucune dependance additionnelle requise pour les recommandations proposees.
+
 ## Roadmap (extraits)
 - Renforcer les tests backend/front.
 - Edition riche (Tiptap) et autosave dans le frontend.
